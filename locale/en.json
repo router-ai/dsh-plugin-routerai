@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "RouterAI",
+    "description": "RouterAI model provider: Claude, GPT, Gemini, DeepSeek, Qwen and hundreds more behind one key, billed in rubles. Browser sign-in, balance and session cost right in the app.",
+    "detail": "docs/DETAIL.md"
+  }
+}

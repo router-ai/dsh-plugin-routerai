@@ -1,0 +1,37 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Типы
+        run: npm run typecheck
+      - name: Тесты
+        run: npm test
+      - name: Сборка
+        run: npm run build
+      - name: Состав пакета
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e '
+            const files = require("./pack.json")[0].files.map(file => file.path)
+            const required = ["lib/index.js", "lib/client.js", "cordis.patch.yml", "icon.svg", "locale/ru.json", "docs/DETAIL.ru.md"]
+            const missing = required.filter(path => !files.includes(path))
+            if (missing.length > 0) { console.error("В пакете не хватает: " + missing.join(", ")); process.exit(1) }
+            console.log(files.join("\n"))
+          '

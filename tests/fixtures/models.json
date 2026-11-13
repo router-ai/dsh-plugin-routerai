@@ -1,0 +1,405 @@
+{
+ "data": [
+  {
+   "id": "recraft/recraft-v4-vector",
+   "name": "Recraft: Recraft V4 Vector",
+   "created": 1778707333,
+   "description": "…",
+   "context_length": null,
+   "architecture": {
+    "modality": "text+image->image",
+    "tokenizer": null,
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "image"
+    ]
+   },
+   "pricing": {
+    "image_output": 8.6299512
+   },
+   "pricing_units": {
+    "image_output": "image"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "aspect_ratio",
+    "output_format",
+    "n",
+    "input_references"
+   ],
+   "default_parameters": null,
+   "supported_aspect_ratios": [
+    "1:1",
+    "4:3",
+    "3:4",
+    "16:9",
+    "9:16",
+    "auto"
+   ],
+   "max_image_references": 1,
+   "supported_image_sizes": null,
+   "supported_qualities": null,
+   "supported_backgrounds": null,
+   "supported_output_formats": [
+    "svg"
+   ],
+   "max_image_count": 6,
+   "supported_image_references": true,
+   "image_seed": false,
+   "supports_negative_prompt": false,
+   "image_pricing": [
+    {
+     "unit": "image",
+     "variant": null,
+     "price": 8.6299512
+    }
+   ]
+  },
+  {
+   "id": "yandex/gpt-pro-5",
+   "name": "YandexGPT Pro 5",
+   "created": 1740441600,
+   "description": "…",
+   "context_length": 32768,
+   "architecture": {
+    "modality": "text->text",
+    "tokenizer": "Other",
+    "instruct_type": null,
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "image": 0.0,
+    "prompt": 0.00156,
+    "request": 0.0,
+    "completion": 0.00156,
+    "web_search": 0.0,
+    "image_output": 0.0,
+    "internal_reasoning": 0.0
+   },
+   "pricing_units": {
+    "image": "token",
+    "prompt": "token",
+    "request": "request",
+    "completion": "token",
+    "web_search": "request",
+    "image_output": "token",
+    "internal_reasoning": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": null,
+   "default_parameters": null
+  },
+  {
+   "id": "deepseek/deepseek-v4.1-flash",
+   "name": "DeepSeek: DeepSeek V4.1 Flash",
+   "created": 1789021285,
+   "description": "…",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text+image->text",
+    "tokenizer": "DeepSeek",
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": 1.661265606e-05,
+    "completion": 4.983796818e-05,
+    "input_cache_read": 4.983796818e-07
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "completion": "token",
+    "input_cache_read": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "parallel_tool_calls",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_a",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {}
+  },
+  {
+   "id": "anthropic/claude-sonnet-5.5",
+   "name": "Anthropic: Claude Sonnet 5.5",
+   "created": 1790618686,
+   "description": "…",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text+image+file->text",
+    "tokenizer": "Claude",
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image",
+     "file"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.00021574878,
+    "completion": 0.0010787439,
+    "web_search": 1.0787439,
+    "input_cache_read": 1.0787439e-05,
+    "input_cache_write": 0.000269685975
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "completion": "token",
+    "web_search": "request",
+    "input_cache_read": "token",
+    "input_cache_write": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_completion_tokens",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "stop",
+    "structured_outputs",
+    "tool_choice",
+    "tools",
+    "verbosity"
+   ],
+   "default_parameters": {}
+  },
+  {
+   "id": "google/gemini-embedding-2-preview",
+   "name": "Google: Gemini Embedding 2 Preview",
+   "created": 1776436465,
+   "description": "…",
+   "context_length": 8192,
+   "architecture": {
+    "modality": "text+image+file+audio+video->embeddings",
+    "tokenizer": "Gemini",
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image",
+     "file",
+     "audio",
+     "video"
+    ],
+    "output_modalities": [
+     "embeddings"
+    ]
+   },
+   "pricing": {
+    "audio": 0.000701183535,
+    "image": 4.85434755e-05,
+    "prompt": 2.1574878e-05,
+    "completion": 0.0
+   },
+   "pricing_units": {
+    "audio": "token",
+    "image": "token",
+    "prompt": "token",
+    "completion": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {
+    "top_k": null,
+    "top_p": null,
+    "temperature": null,
+    "presence_penalty": null,
+    "frequency_penalty": null,
+    "repetition_penalty": null
+   }
+  },
+  {
+   "id": "cohere/rerank-v3.5",
+   "name": "Cohere: Rerank v3.5",
+   "created": 1775416158,
+   "description": "…",
+   "context_length": 4096,
+   "architecture": {
+    "modality": "text->rerank",
+    "tokenizer": null,
+    "instruct_type": null,
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "rerank"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.0,
+    "completion": 0.0,
+    "search_units": 0.10787439
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "completion": "token",
+    "search_units": "search_unit"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": null
+  },
+  {
+   "id": "openai/gpt-6.1-sol",
+   "name": "OpenAI: GPT-6.1 Sol",
+   "created": 1790702882,
+   "description": "…",
+   "context_length": 1050000,
+   "architecture": {
+    "modality": "text+image+file->text",
+    "tokenizer": "GPT",
+    "instruct_type": null,
+    "input_modalities": [
+     "file",
+     "image",
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.00021574878,
+    "completion": 0.0010787439,
+    "web_search": 1.0787439,
+    "input_cache_read": 1.0787439e-05,
+    "input_cache_write": 0.000269685975
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "completion": "token",
+    "web_search": "request",
+    "input_cache_read": "token",
+    "input_cache_write": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_completion_tokens",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "seed",
+    "structured_outputs",
+    "tool_choice",
+    "tools",
+    "verbosity"
+   ],
+   "default_parameters": {}
+  },
+  {
+   "id": "~anthropic/claude-sonnet-latest",
+   "name": "Anthropic: Claude Sonnet 5.5",
+   "created": 1790618686,
+   "description": "…",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text+image+file->text",
+    "tokenizer": "Claude",
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image",
+     "file"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.00021574878,
+    "completion": 0.0010787439,
+    "web_search": 1.0787439,
+    "input_cache_read": 1.0787439e-05,
+    "input_cache_write": 0.000269685975
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "completion": "token",
+    "web_search": "request",
+    "input_cache_read": "token",
+    "input_cache_write": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_completion_tokens",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "stop",
+    "structured_outputs",
+    "tool_choice",
+    "tools",
+    "verbosity"
+   ],
+   "default_parameters": {}
+  },
+  {
+   "id": "broken entry",
+   "name": "Broken"
+  },
+  {
+   "id": "demo/per-request",
+   "name": "Demo: Per Request",
+   "context_length": 8000,
+   "architecture": {
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.5,
+    "completion": 0.5
+   },
+   "pricing_units": {
+    "prompt": "request",
+    "completion": "request"
+   },
+   "supported_parameters": []
+  }
+ ]
+}

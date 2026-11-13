@@ -1,0 +1,63 @@
+# Выпуск версии. Запускается тегом vX.Y.Z: проверяет код, публикует пакет в npm
+# и создаёт релиз на GitHub с заметками из CHANGELOG.md.
+#
+# Доступ к npm: секрет NPM_TOKEN (токен с правом публикации в @router-ai). Когда пакет уже
+# существует, можно перейти на Trusted Publishing — настроить его на npmjs.com для этого
+# репозитория и файла release.yml, после чего секрет удалить.
+name: release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Версия в package.json соответствует тегу
+        run: |
+          declared="v$(node -p 'require("./package.json").version')"
+          if [ "$declared" != "$VERSION" ]; then
+            echo "::error::Тег $VERSION, а в package.json версия $declared"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Публикация в npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PRIVATE_REPO: ${{ github.event.repository.private }}
+        run: |
+          # Предварительные версии (1.2.3-rc.1) не должны становиться версией по умолчанию.
+          channel=latest
+          case "$VERSION" in *-*) channel=next ;; esac
+          # Подтверждение происхождения сборки npm принимает только от публичных репозиториев.
+          flags=""
+          if [ "$PRIVATE_REPO" = "false" ]; then flags="--provenance"; fi
+          if ! npm publish --access public --tag "$channel" $flags 2> publish.err; then
+            cat publish.err
+            # Причина отказа npm — в сводку запуска, чтобы её было видно без чтения всего журнала.
+            sed -n -E 's/^npm (error|ERR!) (code|[0-9]{3}|E[A-Z0-9]+)/::error::npm \2/p' publish.err | head -n 6
+            exit 1
+          fi
+          cat publish.err
+      - name: Релиз на GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/changelog.mjs "${VERSION#v}" > notes.md
+          flags=""
+          case "$VERSION" in *-*) flags="--prerelease" ;; esac
+          gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file notes.md $flags

@@ -1,0 +1,52 @@
+# DeepSeek Harness выходит часто и пока без гарантий совместимости. Раз в сутки проверяем,
+# собирается ли плагин с самой свежей версией его пакетов, и если нет — заводим задачу.
+name: harness-watch
+
+on:
+  schedule:
+    - cron: '40 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  newest-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: versions
+        run: node scripts/harness-versions.mjs >> "$GITHUB_OUTPUT"
+      - name: Сборка и тесты на ${{ steps.versions.outputs.newest }}
+        id: trial
+        if: steps.versions.outputs.newest != steps.versions.outputs.pinned
+        continue-on-error: true
+        run: |
+          npm ci
+          npm install --no-save ${{ steps.versions.outputs.install }}
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Задача о несовместимости
+        if: steps.trial.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEWEST: ${{ steps.versions.outputs.newest }}
+          PINNED: ${{ steps.versions.outputs.pinned }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Плагин не проходит проверку с DeepSeek Harness $NEWEST"
+          # Одна задача на версию: повторные ночные запуски её не дублируют.
+          if [ -n "$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number')" ]; then
+            exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+            --body "Плагин собирается и тестируется с пакетами harness $PINNED. С версией $NEWEST проверка упала: $RUN_URL"
+      - name: Итог
+        if: steps.trial.outcome == 'failure'
+        run: exit 1
