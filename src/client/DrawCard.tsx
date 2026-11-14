@@ -1,8 +1,9 @@
-// Карточка вызова инструмента рисования в чате: пока идёт работа — что рисуется,
-// после — сами картинки, стоимость и кнопки, открывающие сохранённые файлы.
+// Карточка вызова инструментов рисования и видео в чате: пока идёт работа — что делается,
+// после — картинки (у рисования), стоимость и кнопки, открывающие сохранённые файлы.
 import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { VIDEO_TOOL } from '../links.ts'
 import { rub } from '../money.ts'
 import type { Translate } from './texts.ts'
 
@@ -10,6 +11,8 @@ import type { Translate } from './texts.ts'
 interface Props {
   t: Translate
   phase: 'preparing' | 'start' | 'result'
+  /** Имя инструмента: по нему карточка различает картинку и видео. */
+  toolName: string
   block: {
     argsRaw?: string
     call?: { argsRaw: string } | null
@@ -48,13 +51,14 @@ function Picture({ attachment, loadImage }: { attachment: ImageAttachmentRef; lo
   return url === null ? <i /> : <img src={url} alt={attachment.name ?? ''} width={attachment.width} height={attachment.height} style={{ height: 'auto' }} />
 }
 
-export function DrawCard({ t, phase, block, loadImage, openFile }: Props) {
+export function DrawCard({ t, phase, toolName, block, loadImage, openFile }: Props) {
   const prompt = promptOf(block)
+  const video = toolName === VIDEO_TOOL
 
   if (phase !== 'result') {
     return (
       <div className="rai-drawn" data-routerai="draw-card">
-        <div className="rai-line"><span className="rai-busy" /><b>{t('drawing')}</b></div>
+        <div className="rai-line"><span className="rai-busy" /><b>{t(video ? 'filming' : 'drawing')}</b></div>
         {prompt === '' ? null : <span className="rai-note">{prompt}</span>}
       </div>
     )
@@ -64,7 +68,7 @@ export function DrawCard({ t, phase, block, loadImage, openFile }: Props) {
     const reason = block.content?.find(item => item.type === 'text')?.text ?? block.error?.reason ?? ''
     return (
       <div className="rai-drawn" data-routerai="draw-card">
-        <b>{t('drawFailed')}</b>
+        <b>{t(video ? 'filmFailed' : 'drawFailed')}</b>
         <span className="rai-alert">{reason}</span>
       </div>
     )
@@ -77,7 +81,7 @@ export function DrawCard({ t, phase, block, loadImage, openFile }: Props) {
     <div className="rai-drawn" data-routerai="draw-card">
       {shown.length === 0 ? null : <div className="rai-gallery">{shown.map(attachment => <Picture key={attachment.attachmentId} attachment={attachment} loadImage={loadImage} />)}</div>}
       <div className="rai-line">
-        <b>{t('drawn')}</b>
+        <b>{t(video ? 'filmed' : 'drawn')}</b>
         {facts === '' ? null : <span className="rai-faint">{facts}</span>}
       </div>
       {prompt === '' ? null : <span className="rai-note">{prompt}</span>}

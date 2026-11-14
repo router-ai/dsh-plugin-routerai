@@ -1,6 +1,7 @@
-// Картинки и распознавание речи через RouterAI. Оба запроса синхронные:
-// POST /images отдаёт картинки в base64, POST /audio/transcriptions — текст.
-// В обоих ответах RouterAI сообщает стоимость в рублях (`usage.cost`).
+// Картинки, видео и распознавание речи через RouterAI.
+// Картинки (POST /images) и речь (POST /audio/transcriptions) — синхронные запросы.
+// Видео — задача: POST /videos её создаёт, GET /videos/{id} сообщает статус,
+// GET /videos/{id}/content отдаёт готовый mp4. Стоимость в рублях приходит в `usage.cost`.
 
 export class MediaError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -9,12 +10,17 @@ export class MediaError extends Error {
 }
 
 async function post(apiBase: string, path: string, apiKey: string, body: unknown, signal: AbortSignal, timeoutMs: number): Promise<Record<string, unknown>> {
+  return exchange(`${apiBase}${path}`, apiKey, body, signal, timeoutMs)
+}
+
+/** Запрос к RouterAI с разбором ответа и ошибок; без `body` — GET. */
+async function exchange(url: string, apiKey: string, body: unknown, signal: AbortSignal, timeoutMs: number): Promise<Record<string, unknown>> {
   let response: Response
   try {
-    response = await fetch(`${apiBase}${path}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', accept: 'application/json', 'X-Title': 'DeepSeek Harness' },
-      body: JSON.stringify(body),
+    response = await fetch(url, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json', 'X-Title': 'DeepSeek Harness', ...body === undefined ? {} : { 'content-type': 'application/json' } },
+      ...body === undefined ? {} : { body: JSON.stringify(body) },
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
     })
   } catch (error) {
@@ -109,4 +115,86 @@ export async function recognizeSpeech(apiBase: string, apiKey: string, request: 
   const price = cost(payload)
   if (price !== undefined) heard.cost = price
   return heard
+}
+
+export interface FilmRequest {
+  model: string
+  prompt: string
+  /** Длительность в секундах; допустимые значения зависят от модели. */
+  seconds?: number
+  aspectRatio?: string
+  /** Например 480p, 720p, 1080p. */
+  resolution?: string
+  /** Первый кадр ролика: картинка в виде data-URI. */
+  firstFrame?: string
+}
+
+export interface Film {
+  bytes: Uint8Array
+  cost?: number
+  jobId: string
+}
+
+export interface FilmOptions {
+  /** Пауза между проверками статуса. */
+  pollMs?: number
+  /** Сколько всего ждать готовности. */
+  patienceMs?: number
+  /** Статус задачи сменился — для индикации хода работы. */
+  onStatus?(status: string): void
+}
+
+const FAILED = new Set(['failed', 'cancelled', 'expired'])
+
+/** Снять видео: создать задачу, дождаться готовности и скачать результат. */
+export async function makeFilm(apiBase: string, apiKey: string, request: FilmRequest, signal: AbortSignal, options: FilmOptions = {}): Promise<Film> {
+  const job = await post(apiBase, '/videos', apiKey, {
+    model: request.model,
+    prompt: request.prompt,
+    ...request.seconds === undefined ? {} : { duration: request.seconds },
+    ...request.aspectRatio === undefined ? {} : { aspect_ratio: request.aspectRatio },
+    ...request.resolution === undefined ? {} : { resolution: request.resolution },
+    ...request.firstFrame === undefined ? {} : { frame_images: [{ type: 'image_url', image_url: { url: request.firstFrame }, frame_type: 'first_frame' }] },
+  }, signal, 60_000)
+  const jobId = typeof job['id'] === 'string' ? job['id'] : ''
+  if (jobId === '') throw new MediaError('RouterAI не вернул идентификатор задачи на видео')
+
+  const deadline = Date.now() + (options.patienceMs ?? 20 * 60_000)
+  let state = job
+  let seen = ''
+  for (;;) {
+    const status = typeof state['status'] === 'string' ? state['status'] : ''
+    if (status !== seen) {
+      seen = status
+      options.onStatus?.(status)
+    }
+    if (status === 'completed') break
+    if (FAILED.has(status)) {
+      const reason = typeof state['error'] === 'string' && state['error'] !== '' ? state['error'] : `задача завершилась со статусом ${status}`
+      throw new MediaError(`RouterAI не снял видео: ${reason}`)
+    }
+    if (Date.now() > deadline) throw new MediaError('Видео не было готово за отведённое время. Задача могла завершиться позже — проверьте раздел активности в кабинете RouterAI.')
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve() }, options.pollMs ?? 5000)
+      const stop = () => { clearTimeout(timer); reject(signal.reason instanceof Error ? signal.reason : new Error('Отменено')) }
+      signal.addEventListener('abort', stop, { once: true })
+    })
+    state = await exchange(`${apiBase}/videos/${encodeURIComponent(jobId)}`, apiKey, undefined, signal, 30_000)
+  }
+
+  let download: Response
+  try {
+    download = await fetch(`${apiBase}/videos/${encodeURIComponent(jobId)}/content`, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10 * 60_000)]),
+    })
+  } catch (error) {
+    if (signal.aborted) throw error
+    throw new MediaError(`Не удалось скачать видео: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!download.ok) throw new MediaError(`Не удалось скачать видео: HTTP ${download.status}`, download.status)
+  const bytes = new Uint8Array(await download.arrayBuffer())
+  if (bytes.byteLength === 0) throw new MediaError('RouterAI отдал пустой файл видео')
+  const price = cost(state)
+  return price === undefined ? { bytes, jobId } : { bytes, jobId, cost: price }
 }

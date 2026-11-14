@@ -76,7 +76,7 @@ export class Remote {
   cancelSignIn = () => this.act('sign-in/cancel', {}, false)
   signOut = () => this.act('sign-out', {})
   saveKey = (key: string) => this.act('key', { key })
-  savePreferences = (patch: { models?: readonly string[]; utilityModel?: string | null; lowBalance?: number; imageModel?: string | null; speechModel?: string }) => this.act('preferences', patch, false)
+  savePreferences = (patch: { models?: readonly string[]; utilityModel?: string | null; lowBalance?: number; imageModel?: string | null; speechModel?: string; videoModel?: string | null; videoBudget?: number }) => this.act('preferences', patch, false)
 
   /** Каталог запрашивается один раз за жизнь вкладки. */
   catalog(): Promise<CatalogEntry[]> {

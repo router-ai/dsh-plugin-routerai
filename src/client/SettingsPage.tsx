@@ -239,6 +239,14 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
     .sort((a, b) => (a.perImage ?? Infinity) - (b.perImage ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
   const listeners = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('transcription'))
     .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const directors = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('video'))
+    .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const [budget, setBudget] = useState(String(overview.videoBudget))
+  const commitBudget = () => {
+    const value = Number(budget.replace(',', '.'))
+    if (Number.isFinite(value) && value > 0) action.run(() => remote.savePreferences({ videoBudget: value }))
+    else setBudget(String(overview.videoBudget))
+  }
   const known = (list: CatalogEntry[], slug: string | null) => slug === null || list.some(entry => entry.slug === slug)
   const commitThreshold = () => {
     const value = Number(threshold.replace(',', '.'))
@@ -265,6 +273,22 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         </select>
         <span className="rai-note">{t('imageHint')}</span>
       </label>
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('videoLabel')}</span>
+        <select className="rai-choice" data-routerai="video-model" value={overview.videoModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ videoModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('videoOff')}</option>
+          {known(directors, overview.videoModel) ? null : <option value={overview.videoModel ?? ''}>{overview.videoModel}</option>}
+          {directors.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title}{entry.perSecond === undefined ? '' : ` · ${t('perSecond', { price: rub(entry.perSecond) })}`}</option>)}
+        </select>
+        <span className="rai-note">{t('videoHint')}</span>
+      </label>
+      {overview.videoModel === null ? null : (
+        <label className="rai-line">
+          <span className="rai-fill">{t('videoBudgetLabel')}</span>
+          <Input style={{ width: 96 }} inputMode="decimal" data-routerai="video-budget" value={budget} onChange={(event) => { setBudget(event.target.value) }} onBlur={commitBudget} />
+          <span>₽</span>
+        </label>
+      )}
       <label style={{ display: 'grid', gap: 6 }}>
         <span>{t('speechLabel')}</span>
         <select className="rai-choice" data-routerai="speech-model" value={overview.speechModel} onChange={(event) => { action.run(() => remote.savePreferences({ speechModel: event.target.value })) }}>

@@ -27,6 +27,8 @@ export interface Overview {
   lowBalance: number
   imageModel: string | null
   speechModel: string
+  videoModel: string | null
+  videoBudget: number
   problem: MoneyProblem | null
 }
 
@@ -83,6 +85,8 @@ export class Bridge {
       lowBalance: preferences.current.lowBalance,
       imageModel: preferences.current.imageModel,
       speechModel: preferences.current.speechModel,
+      videoModel: preferences.current.videoModel,
+      videoBudget: preferences.current.videoBudget,
       problem: this.problem !== null && Date.now() - this.problem.at < PROBLEM_SHOWN_MS ? this.problem : null,
     }
   }

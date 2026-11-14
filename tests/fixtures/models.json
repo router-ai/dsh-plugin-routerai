@@ -647,6 +647,61 @@
      "price": 3.77560365
     }
    ]
+  },
+  {
+   "id": "tbc/mischief-1",
+   "name": "TBC: mischief 1",
+   "created": 1793319378,
+   "description": "…",
+   "context_length": null,
+   "architecture": {
+    "modality": "text+image->video",
+    "tokenizer": null,
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "video"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.0,
+    "seconds": 0.53937195,
+    "completion": 0.0
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "seconds": "second",
+    "completion": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": null,
+   "supported_aspect_ratios": [
+    "16:9"
+   ],
+   "max_image_references": null,
+   "supported_durations": [
+    3,
+    5
+   ],
+   "supported_resolutions": [
+    "480p",
+    "720p"
+   ],
+   "supported_sizes": [
+    "854x480",
+    "1280x720"
+   ],
+   "supported_frame_images": [
+    "first_frame"
+   ],
+   "generate_audio": false,
+   "seed": true,
+   "supports_reference_images": false,
+   "frames_exclusive_with_references": false
   }
  ]
 }

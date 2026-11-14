@@ -19,17 +19,20 @@ export interface ModelCard {
   makes: Output[]
   /** Цена одной картинки, ₽ — только у моделей с оплатой за картинку. */
   perImage?: number
-  /** Цена секунды аудио, ₽ — у моделей распознавания речи с посекундной оплатой. */
+  /** Цена секунды, ₽ — у моделей распознавания речи и видео с посекундной оплатой. */
   perSecond?: number
+  /** Длительности ролика в секундах, которые принимает видео-модель. */
+  durations?: number[]
 }
 
-export type Output = 'text' | 'image' | 'transcription'
+export type Output = 'text' | 'image' | 'transcription' | 'video'
 
-const OUTPUTS: readonly Output[] = ['text', 'image', 'transcription']
+const OUTPUTS: readonly Output[] = ['text', 'image', 'transcription', 'video']
 
 export const isChatModel = (card: ModelCard): boolean => card.makes.includes('text')
 export const isImageModel = (card: ModelCard): boolean => card.makes.includes('image')
 export const isSpeechModel = (card: ModelCard): boolean => card.makes.includes('transcription')
+export const isVideoModel = (card: ModelCard): boolean => card.makes.includes('video')
 
 const SLUG = /^~?[a-z0-9][\w.-]*\/[a-z0-9][\w.:-]*$/i
 
@@ -87,7 +90,7 @@ function splitName(name: string, slug: string): { maker: string; title: string }
   return { maker: vendor.charAt(0).toUpperCase() + vendor.slice(1), title: name.trim() || slug }
 }
 
-/** Одна запись ответа; undefined для повреждённых записей и моделей, с которыми плагин не работает (эмбеддинги, видео, озвучка). */
+/** Одна запись ответа; undefined для повреждённых записей и моделей, с которыми плагин не работает (эмбеддинги, озвучка). */
 export function readModelCard(entry: unknown): ModelCard | undefined {
   const raw = bag(entry)
   if (!isModelSlug(raw['id'])) return undefined
@@ -115,6 +118,10 @@ export function readModelCard(entry: unknown): ModelCard | undefined {
   if (bag(raw['pricing_units'])['seconds'] === 'second') {
     const perSecond = amount(bag(raw['pricing'])['seconds'])
     if (perSecond !== undefined) card.perSecond = perSecond
+  }
+  if (Array.isArray(raw['supported_durations'])) {
+    const durations = (raw['supported_durations'] as unknown[]).filter((value): value is number => typeof value === 'number' && value > 0).sort((a, b) => a - b)
+    if (durations.length > 0) card.durations = durations
   }
   return card
 }
@@ -144,7 +151,7 @@ export async function downloadModelList(apiBase: string, signal?: AbortSignal): 
 }
 
 interface Snapshot {
-  format: 2
+  format: 3
   source: string
   savedAt: number
   cards: ModelCard[]
@@ -152,10 +159,10 @@ interface Snapshot {
 
 function acceptSnapshot(raw: unknown): Snapshot | undefined {
   const value = bag(raw)
-  if (value['format'] !== 2 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
+  if (value['format'] !== 3 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
   if (!Array.isArray(value['cards'])) return undefined
   const cards = (value['cards'] as unknown[]).filter((card): card is ModelCard => isModelSlug(bag(card)['slug']) && Array.isArray(bag(card)['makes']))
-  return { format: 2, source: value['source'], savedAt: value['savedAt'], cards }
+  return { format: 3, source: value['source'], savedAt: value['savedAt'], cards }
 }
 
 export interface ModelCatalogOptions {
@@ -220,7 +227,7 @@ export class ModelCatalog {
       const cards = await this.download(this.options.apiBase)
       this.lastError = undefined
       this.adopt(cards, this.clock())
-      await this.disk?.write({ format: 2, source: this.options.apiBase, savedAt: this.stamp, cards })
+      await this.disk?.write({ format: 3, source: this.options.apiBase, savedAt: this.stamp, cards })
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
     }

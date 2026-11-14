@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isChatModel, isImageModel, isSpeechModel, ModelCatalog } from '../src/catalog.ts'
+import { isChatModel, isImageModel, isSpeechModel, isVideoModel, ModelCatalog } from '../src/catalog.ts'
 import { pricePair, rub, windowLabel } from '../src/money.ts'
 import { sampleCards, scratchDir } from './helpers.ts'
 
@@ -30,6 +30,12 @@ describe('разбор каталога RouterAI', () => {
     expect(card('google/gemini-3.1-flash-image').makes).toEqual(['text', 'image'])
     expect(card('google/gemini-3.1-flash-image').perImage).toBeUndefined()
 
+    const director = card('tbc/mischief-1')
+    expect(isVideoModel(director)).toBe(true)
+    expect(isChatModel(director)).toBe(false)
+    expect(director.perSecond).toBeCloseTo(0.53937195, 6)
+    expect(director.durations).toEqual([3, 5])
+
     const listener = card('openai/whisper-large-v3-turbo')
     expect(isSpeechModel(listener)).toBe(true)
     expect(listener.perSecond).toBeCloseTo(0.0003592217187, 9)
@@ -57,6 +63,7 @@ describe('суммы и подписи', () => {
   it('округляет рубли по величине суммы', () => {
     expect(rub(1234.56)).toMatch(/^1\s235 ₽$/)
     expect(rub(12.5)).toBe('12,50 ₽')
+    expect(rub(15)).toBe('15 ₽')
     expect(rub(0.0421)).toBe('0,042 ₽')
     expect(rub(0.00655)).toBe('0,0066 ₽')
     expect(rub(0)).toBe('0 ₽')

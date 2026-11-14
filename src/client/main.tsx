@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { ComponentType } from 'react'
 import { MoneyNotice } from './MoneyNotice.tsx'
-import { DRAW_TOOL } from '../links.ts'
+import { DRAW_TOOL, VIDEO_TOOL } from '../links.ts'
 import { DrawCard } from './DrawCard.tsx'
 import { Logo } from './parts.tsx'
 import { Remote } from './remote.ts'
@@ -72,8 +72,8 @@ export function apply(ctx: Context): void {
     },
   ]
 
-  // Карточка вызова инструмента рисования: показывает саму картинку, а не строку «вызов инструмента».
-  placements.push({ slot: 'tool.call.toolview', options: { key: DRAW_TOOL }, component: DrawCard })
+  // Карточки вызовов инструментов: картинка видна прямо в чате, у видео — ход работы и кнопка открытия файла.
+  for (const key of [DRAW_TOOL, VIDEO_TOOL]) placements.push({ slot: 'tool.call.toolview', options: { key }, component: DrawCard })
 
   for (const { slot, options, component } of placements) {
     slots.inject(slot, () => slots.register({ name: slot, locale: NAMESPACE, ...options }, component))

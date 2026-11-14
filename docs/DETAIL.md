@@ -17,5 +17,6 @@ others — behind a single key and bills in rubles. This plugin adds those model
 - Clear messages when the balance runs out or the key hits its spending limit.
 - Savings: session titles and context compaction run on an inexpensive utility model.
 - Images: ask the agent to draw — the result appears in the chat and in the project's `routerai-media` folder.
+- Video: the agent makes short clips and animates images; enabled by choosing a model in the settings.
 - Voice input: RouterAI recognizes speech for the Voice input plugin.
 - The `/routerai` command for the same actions from the chat: `login`, `key`, `logout`, `status`, `models`, `find`.

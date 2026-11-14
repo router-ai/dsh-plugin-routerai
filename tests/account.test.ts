@@ -165,7 +165,8 @@ describe('мост для интерфейса', () => {
       connected: false, keyMask: null, signIn: { stage: 'idle' }, account: null,
       picker: { models: ['anthropic/claude-sonnet-5.5'], custom: false },
       utilityModel: 'deepseek/deepseek-v4.1-flash', lowBalance: 100,
-      imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo', problem: null,
+      imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo',
+      videoModel: null, videoBudget: 100, problem: null,
     })
   })
 
@@ -189,6 +190,9 @@ describe('мост для интерфейса', () => {
     expect((await send('preferences', { models: ['openai/gpt-6.1-sol', 'openai/gpt-6.1-sol'], utilityModel: null, lowBalance: 10, imageModel: null, speechModel: 'openai/whisper-large-v3' })).status).toBe(200)
     expect((await send('overview')).body).toMatchObject({ picker: { models: ['openai/gpt-6.1-sol'], custom: true }, utilityModel: null, lowBalance: 10, imageModel: null, speechModel: 'openai/whisper-large-v3' })
     expect((await send('preferences', { speechModel: null })).status).toBe(400)
+    expect((await send('preferences', { videoModel: 'tbc/mischief-1', videoBudget: 30 })).status).toBe(200)
+    expect((await send('overview')).body).toMatchObject({ videoModel: 'tbc/mischief-1', videoBudget: 30 })
+    expect((await send('preferences', { videoBudget: 0 })).status).toBe(400)
     const refused = await send('preferences', { models: ['какая-то модель'] })
     expect(refused.status).toBe(400)
     expect(refused.body.error).toContain('какая-то модель')

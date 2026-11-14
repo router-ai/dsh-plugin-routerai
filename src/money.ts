@@ -3,7 +3,8 @@
 /** Сколько знаков после запятой показать, чтобы сумма не выглядела нулём и не шумела копейками. */
 function fractionDigits(amount: number): number {
   const size = Math.abs(amount)
-  if (size === 0 || size >= 100) return 0
+  // Целые суммы и крупные — без копеек: «15 ₽», «1 235 ₽».
+  if (size === 0 || size >= 100 || Number.isInteger(amount)) return 0
   if (size >= 1) return 2
   if (size >= 0.01) return 3
   return 4

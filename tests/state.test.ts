@@ -34,7 +34,7 @@ describe('настройки', () => {
     await store.restore()
     expect(store.pickerModels()).toEqual(['a/one', 'b/two'])
     expect(store.customized).toBe(false)
-    expect(store.current).toMatchObject({ utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100, imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo' })
+    expect(store.current).toMatchObject({ utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100, imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo', videoModel: null, videoBudget: 100 })
   })
 
   it('сохраняет выбор, убирает повторы и переживает перезапуск', async () => {

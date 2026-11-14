@@ -4,7 +4,7 @@
  * Плагин регистрирует маршрут `routerai`: запросы уходят в OpenAI-совместимый API RouterAI
  * через штатный адаптер pi-ai. Сверх этого плагин следит за каталогом моделей и ценами,
  * помогает получить ключ через браузер, показывает баланс и считает стоимость сессий,
- * даёт агенту инструмент для рисования картинок и распознаёт речь для голосового ввода.
+ * даёт агенту инструменты для рисования картинок и съёмки видео и распознаёт речь для голосового ввода.
  *
  * Настройка из файла (обычно всё делается в Настройках → RouterAI):
  *
@@ -36,6 +36,7 @@ import { Bridge } from './bridge.ts'
 import { isChatModel, ModelCatalog } from './catalog.ts'
 import { CostBook } from './costs.ts'
 import { registerDrawTool } from './draw.ts'
+import { registerFilmTool } from './film.ts'
 import { API_BASE, KEYS_PAGE, ROUTE } from './links.ts'
 import { pricePair, windowLabel } from './money.ts'
 import { PreferenceStore } from './preferences.ts'
@@ -249,6 +250,15 @@ export function apply(ctx: Context, config: Config): void {
       imageModel: () => preferences.current.imageModel,
       attachments: () => optional.attachments,
       charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
+    })
+    registerFilmTool(scope, {
+      apiBase, readKey,
+      videoModel: () => preferences.current.videoModel,
+      videoBudget: () => preferences.current.videoBudget,
+      findModel: slug => catalog.find(slug),
+      charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
+      // Переменная для стенда: мок отвечает мгновенно, ждать по 5 секунд между проверками незачем.
+      ...process.env['ROUTERAI_VIDEO_POLL_MS'] === undefined ? {} : { pollMs: Number(process.env['ROUTERAI_VIDEO_POLL_MS']) },
     })
   })
 
