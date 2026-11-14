@@ -27,7 +27,7 @@ jobs:
         run: npm run build
       - name: Состав пакета
         run: |
-          npm pack --dry-run --json > pack.json
+          npm pack --dry-run --json --ignore-scripts > pack.json
           node -e '
             const files = require("./pack.json")[0].files.map(file => file.path)
             const required = ["lib/index.js", "lib/client.js", "cordis.patch.yml", "icon.svg", "locale/ru.json", "docs/DETAIL.ru.md"]
