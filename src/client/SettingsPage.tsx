@@ -241,6 +241,45 @@ function Picker({ t, remote, overview, catalog }: Shared & { overview: Overview;
   )
 }
 
+/** Модели, которые агент может выбрать вместо основной: список с удалением и добавлением из каталога. */
+function Choices({ t, name, main, chosen, pool, label, save }: {
+  t: Translate
+  name: string
+  main: string
+  chosen: readonly string[]
+  pool: CatalogEntry[]
+  label(entry: CatalogEntry): string
+  save(models: string[]): void
+}) {
+  const bySlug = new Map(pool.map(entry => [entry.slug, entry]))
+  const free = pool.filter(entry => entry.slug !== main && !chosen.includes(entry.slug))
+  return (
+    <div style={{ display: 'grid', gap: 6 }} data-routerai={name}>
+      <span className="rai-note">{t('choicesLabel')}</span>
+      {chosen.length === 0 ? null : (
+        <div className="rai-rows">
+          {chosen.map((slug) => {
+            const entry = bySlug.get(slug)
+            return (
+              <div className="rai-row" key={slug} style={{ gridTemplateColumns: '1fr auto' }}>
+                <span className="rai-clip">{entry === undefined ? slug : label(entry)}</span>
+                <div className="rai-tools">
+                  <button type="button" title={t('choicesRemove', { name: slug })} aria-label={t('choicesRemove', { name: slug })} onClick={() => { save(chosen.filter(item => item !== slug)) }}><Icon glyph="cross" /></button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <select className="rai-choice" value="" aria-label={t('choicesAdd')} onChange={(event) => { if (event.target.value !== '') save([...chosen, event.target.value]) }}>
+        <option value="">{t('choicesAdd')}</option>
+        {free.map(entry => <option key={entry.slug} value={entry.slug}>{label(entry)}</option>)}
+      </select>
+      <span className="rai-faint">{t('choicesHint')}</span>
+    </div>
+  )
+}
+
 function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview; catalog: CatalogEntry[] | null }) {
   const [threshold, setThreshold] = useState(String(overview.lowBalance))
   const action = useAction()
@@ -260,6 +299,16 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
     const value = Number(budget.replace(',', '.'))
     if (Number.isFinite(value) && value > 0) action.run(() => remote.savePreferences({ videoBudget: value }))
     else setBudget(String(overview.videoBudget))
+  }
+  // Для выбора агентом годятся и модели, которым нужен готовый ролик: агент передаст его сам.
+  const anyDirectors = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('video'))
+    .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const voices = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('speech'))
+    .sort((a, b) => (a.price?.input ?? Infinity) - (b.price?.input ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const [voice, setVoice] = useState(overview.voice)
+  const commitVoice = () => {
+    if (voice.trim() !== '' && voice.trim() !== overview.voice) action.run(() => remote.savePreferences({ voice: voice.trim() }))
+    else setVoice(overview.voice)
   }
   const known = (list: CatalogEntry[], slug: string | null) => slug === null || list.some(entry => entry.slug === slug)
   const commitThreshold = () => {
@@ -287,6 +336,11 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         </select>
         <span className="rai-note">{t('imageHint')}</span>
       </label>
+      {overview.imageModel === null ? null : (
+        <Choices t={t} name="image-choices" main={overview.imageModel} chosen={overview.imageChoices} pool={painters}
+          label={entry => `${fullName(entry)}${imagePrice(t, entry)}`}
+          save={models => { action.run(() => remote.savePreferences({ imageChoices: models })) }} />
+      )}
       <label style={{ display: 'grid', gap: 6 }}>
         <span>{t('videoLabel')}</span>
         <select className="rai-choice" data-routerai="video-model" value={overview.videoModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ videoModel: event.target.value === '' ? null : event.target.value })) }}>
@@ -297,10 +351,30 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <span className="rai-note">{t('videoHint')}</span>
       </label>
       {overview.videoModel === null ? null : (
+        <Choices t={t} name="video-choices" main={overview.videoModel} chosen={overview.videoChoices} pool={anyDirectors}
+          label={entry => `${fullName(entry)}${entry.perSecond === undefined ? '' : ` · ${t('perSecond', { price: rub(entry.perSecond) })}`}${entry.media?.needsSource === true ? ` · ${t('needsSource')}` : ''}`}
+          save={models => { action.run(() => remote.savePreferences({ videoChoices: models })) }} />
+      )}
+      {overview.videoModel === null ? null : (
         <label className="rai-line">
           <span className="rai-fill">{t('videoBudgetLabel')}</span>
           <Input style={{ width: 96 }} inputMode="decimal" data-routerai="video-budget" value={budget} onChange={(event) => { setBudget(event.target.value) }} onBlur={commitBudget} />
           <span>₽</span>
+        </label>
+      )}
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('voiceLabel')}</span>
+        <select className="rai-choice" data-routerai="voice-model" value={overview.voiceModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ voiceModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('voiceOff')}</option>
+          {known(voices, overview.voiceModel) ? null : <option value={overview.voiceModel ?? ''}>{overview.voiceModel}</option>}
+          {voices.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.price === undefined || entry.price.input === 0 ? '' : ` · ${t('perThousand', { price: rub(entry.price.input / 1000) })}`}</option>)}
+        </select>
+        <span className="rai-note">{t('voiceHint')}</span>
+      </label>
+      {overview.voiceModel === null ? null : (
+        <label className="rai-line">
+          <span className="rai-fill">{t('voiceNameLabel')}<br /><span className="rai-faint">{t('voiceNameHint')}</span></span>
+          <Input style={{ width: 200 }} data-routerai="voice-name" value={voice} onChange={(event) => { setVoice(event.target.value) }} onBlur={commitVoice} />
         </label>
       )}
       <label style={{ display: 'grid', gap: 6 }}>

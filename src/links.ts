@@ -8,7 +8,9 @@ export const MODELS_PAGE = 'https://routerai.ru/models'
 export const DRAW_TOOL = 'routerai_draw_image'
 /** Имя инструмента, снимающего видео. */
 export const VIDEO_TOOL = 'routerai_make_video'
-/** Папка в рабочем каталоге проекта, куда сохраняются картинки и видео. */
+/** Имя инструмента озвучки текста. */
+export const SPEAK_TOOL = 'routerai_speak'
+/** Папка в рабочем каталоге проекта, куда сохраняются картинки, видео и аудио. */
 export const MEDIA_FOLDER = 'routerai-media'
 
 /** Идентификатор маршрута в harness: так провайдер называется в пикере и конфигурации. */

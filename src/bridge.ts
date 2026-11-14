@@ -29,6 +29,10 @@ export interface Overview {
   speechModel: string
   videoModel: string | null
   videoBudget: number
+  imageChoices: string[]
+  videoChoices: string[]
+  voiceModel: string | null
+  voice: string
   problem: MoneyProblem | null
 }
 
@@ -87,6 +91,10 @@ export class Bridge {
       speechModel: preferences.current.speechModel,
       videoModel: preferences.current.videoModel,
       videoBudget: preferences.current.videoBudget,
+      imageChoices: preferences.current.imageChoices,
+      videoChoices: preferences.current.videoChoices,
+      voiceModel: preferences.current.voiceModel,
+      voice: preferences.current.voice,
       problem: this.problem !== null && Date.now() - this.problem.at < PROBLEM_SHOWN_MS ? this.problem : null,
     }
   }

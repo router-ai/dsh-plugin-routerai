@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { fileStem } from '../src/draw.ts'
-import { readFrame } from '../src/film.ts'
+import { clipSeconds, readClip, readFrame } from '../src/film.ts'
 import { fitAspectRatio, fitCount, fitDuration, fitImageSize, fitOption, fitResolution, imageSizePixels, ratioValue, resolutionHeight } from '../src/fit.ts'
-import { drawPictures, makeFilm, MediaError, recognizeSpeech, sniffPictureType, wavSeconds } from '../src/media.ts'
+import { drawPictures, makeFilm, MediaError, recognizeSpeech, sniffPictureType, speakText, wavSeconds } from '../src/media.ts'
+import { buildMenu, pickModel } from '../src/toolkit.ts'
 import { scratchDir, sendJson, stubServer } from './helpers.ts'
 
 const KEY = 'sk-media-test-key-00000000000'
@@ -38,11 +39,11 @@ describe('картинки', () => {
   it('передаёт размер, качество, фон, формат и исходные картинки', async () => {
     const stub = await stubServer((_exchange, response) => sendJson(response, 200, { data: [{ b64_json: PNG.toString('base64') }] }))
     await drawPictures(`${stub.origin}/api/v1`, KEY, {
-      model: 'demo/painter', prompt: 'сделай фон прозрачным', size: '2K', quality: 'high', background: 'transparent', format: 'webp',
+      model: 'demo/painter', prompt: 'сделай фон прозрачным', size: '2K', quality: 'high', background: 'transparent', format: 'webp', seed: 42,
       references: ['data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'],
     }, new AbortController().signal)
     expect(stub.seen[0]!.body).toEqual({
-      model: 'demo/painter', prompt: 'сделай фон прозрачным', resolution: '2K', quality: 'high', background: 'transparent', output_format: 'webp',
+      model: 'demo/painter', prompt: 'сделай фон прозрачным', resolution: '2K', quality: 'high', background: 'transparent', output_format: 'webp', seed: 42,
       input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }, { type: 'image_url', image_url: { url: 'data:image/png;base64,BBBB' } }],
     })
   })
@@ -160,6 +161,12 @@ describe('видео', () => {
         { type: 'image_url', image_url: { url: 'data:image/png;base64,ZZZZ' }, frame_type: 'last_frame' },
       ],
     })
+    const withSource = await studio([{ status: 'completed' }])
+    await makeFilm(`${withSource.origin}/api/v1`, KEY, { model: 'demo/director', prompt: 'продли ролик', sourceVideo: 'data:video/mp4;base64,AAAA', references: ['data:image/png;base64,CCCC'], seed: 7 }, new AbortController().signal, { pollMs: 5 })
+    expect(withSource.seen[0]!.body).toEqual({
+      model: 'demo/director', prompt: 'продли ролик', seed: 7,
+      input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,CCCC' } }, { type: 'video_url', video_url: { url: 'data:video/mp4;base64,AAAA' } }],
+    })
     const withReferences = await studio([{ status: 'completed' }])
     await makeFilm(`${withReferences.origin}/api/v1`, KEY, { model: 'demo/director', prompt: 'герой идёт', references: ['data:image/png;base64,CCCC'] }, new AbortController().signal, { pollMs: 5 })
     expect(withReferences.seen[0]!.body).toEqual({ model: 'demo/director', prompt: 'герой идёт', input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,CCCC' } }] })
@@ -270,5 +277,100 @@ describe('подгонка запроса под модель', () => {
     expect(resolutionHeight('720p')).toBe(720)
     expect(resolutionHeight('4K')).toBe(2160)
     expect(resolutionHeight('как получится')).toBeUndefined()
+  })
+})
+
+describe('исходное видео из проекта', () => {
+  it('принимает mp4 и webm из рабочего каталога и ничего больше', async () => {
+    const root = await scratchDir()
+    const workspace = `${root}/project`
+    await mkdir(workspace, { recursive: true })
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(32)])
+    await writeFile(`${workspace}/clip.mp4`, mp4)
+    await writeFile(`${workspace}/clip.webm`, Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(32)]))
+    await writeFile(`${workspace}/notes.txt`, 'это не видео, а заметки')
+    await writeFile(`${root}/outside.mp4`, mp4)
+    expect(await readClip(workspace, 'clip.mp4')).toEqual({ url: `data:video/mp4;base64,${mp4.toString('base64')}` })
+    expect((await readClip(workspace, 'clip.webm')).url).toMatch(/^data:video\/webm;base64,/)
+    await expect(readClip(workspace, 'notes.txt')).rejects.toThrow(/нужен файл MP4 или WebM/)
+    await expect(readClip(workspace, '../outside.mp4')).rejects.toThrow(/внутри рабочего каталога/)
+    await expect(readClip(workspace, 'missing.mp4')).rejects.toThrow(/не найден/)
+  })
+})
+
+describe('длительность ролика', () => {
+  /** Заголовок mvhd: версия, время создания и изменения, шкала времени, длительность. */
+  const mvhd = (version: 0 | 1, scale: number, duration: number) => {
+    const body = Buffer.alloc(version === 1 ? 32 : 20)
+    body[0] = version
+    if (version === 1) { body.writeUInt32BE(scale, 20); body.writeBigUInt64BE(BigInt(duration), 24) } else { body.writeUInt32BE(scale, 12); body.writeUInt32BE(duration, 16) }
+    return Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(12), Buffer.from('moov'), Buffer.alloc(4), Buffer.from('mvhd'), body])
+  }
+
+  it('читается из заголовка MP4 обеих версий', () => {
+    expect(clipSeconds(mvhd(0, 1000, 4040))).toBeCloseTo(4.04)
+    expect(clipSeconds(mvhd(1, 90_000, 270_000))).toBeCloseTo(3)
+  })
+
+  it('неизвестна, если заголовка нет или он оборван', () => {
+    expect(clipSeconds(Buffer.from('это не видео'))).toBeUndefined()
+    expect(clipSeconds(Buffer.concat([Buffer.from('mvhd'), Buffer.alloc(6)]))).toBeUndefined()
+    expect(clipSeconds(mvhd(0, 0, 100))).toBeUndefined()
+  })
+})
+
+describe('озвучка текста', () => {
+  /** Заглушка синтеза: отдаёт аудио с идентификатором генерации и отвечает на запрос её стоимости. */
+  async function voiceBooth(reply: { type: string; body: Buffer; cost?: number }) {
+    return stubServer((exchange, response) => {
+      if (exchange.path === '/api/v1/audio/speech') return void response.writeHead(200, { 'content-type': reply.type, 'x-generation-id': 'gen-voice-1' }).end(reply.body)
+      if (exchange.path === '/api/v1/generation?id=gen-voice-1') return sendJson(response, 200, reply.cost === undefined ? { data: {} } : { data: { id: 'gen-voice-1', total_cost: reply.cost } })
+      sendJson(response, 404, {})
+    })
+  }
+
+  it('запрашивает mp3, отдаёт файл как есть и узнаёт стоимость по идентификатору генерации', async () => {
+    const mp3 = Buffer.from('ID3-это-как-будто-mp3')
+    const stub = await voiceBooth({ type: 'audio/mpeg', body: mp3, cost: 0.048 })
+    const spoken = await speakText(`${stub.origin}/api/v1`, KEY, { model: 'x-ai/grok-voice-tts-1.0', text: 'Привет!', voice: 'eve' }, new AbortController().signal)
+    expect(stub.seen[0]!.body).toEqual({ model: 'x-ai/grok-voice-tts-1.0', input: 'Привет!', voice: 'eve', response_format: 'mp3' })
+    expect(spoken.format).toBe('mp3')
+    expect(Buffer.from(spoken.bytes).equals(mp3)).toBe(true)
+    expect(spoken.cost).toBe(0.048)
+    expect(spoken).not.toHaveProperty('seconds')
+  })
+
+  it('у моделей, отдающих только PCM, заворачивает звук в WAV и считает длительность', async () => {
+    const pcm = Buffer.alloc(24_000 * 2 * 2) // две секунды, 24 кГц, моно, 16 бит
+    const stub = await voiceBooth({ type: 'audio/pcm;rate=24000;channels=1', body: pcm })
+    const spoken = await speakText(`${stub.origin}/api/v1`, KEY, { model: 'google/gemini-3.8-flash-tts', text: 'Привет!', voice: 'Kore' }, new AbortController().signal)
+    expect(stub.seen[0]!.body.response_format).toBe('pcm')
+    expect(spoken.format).toBe('wav')
+    expect(spoken.seconds).toBeCloseTo(2)
+    expect(Buffer.from(spoken.bytes).subarray(0, 4).toString()).toBe('RIFF')
+    expect(wavSeconds(spoken.bytes)).toBeCloseTo(2)
+    // Стоимость ещё не посчитана — озвучка всё равно удалась.
+    expect(spoken).not.toHaveProperty('cost')
+  }, 15_000)
+
+  it('пересказывает отказ RouterAI, например про неизвестный голос', async () => {
+    const stub = await stubServer((_exchange, response) => sendJson(response, 400, { error: { message: 'Unknown voice "robot"', code: 400 } }))
+    await expect(speakText(`${stub.origin}/api/v1`, KEY, { model: 'm/x', text: 'т', voice: 'robot' }, new AbortController().signal)).rejects.toMatchObject({ message: 'Unknown voice "robot"', status: 400 })
+  })
+})
+
+describe('выбор модели агентом', () => {
+  const cards = new Map([['a/main', { kind: 'image' }], ['b/vector', { kind: 'image' }], ['c/film', { kind: 'video' }]])
+  const menu = buildMenu('a/main', ['b/vector', 'c/film', 'd/unknown', 'a/main'], slug => cards.get(slug), card => card.kind === 'image')
+
+  it('в меню попадают основная модель и разрешённые подходящие модели из каталога', () => {
+    expect(menu.allowed).toEqual(['a/main', 'b/vector'])
+    expect([...menu.cards.keys()]).toEqual(['a/main', 'b/vector'])
+  })
+
+  it('берёт выбор агента только из меню', () => {
+    expect(pickModel(menu, undefined)).toEqual({ model: 'a/main' })
+    expect(pickModel(menu, 'b/vector')).toEqual({ model: 'b/vector' })
+    expect(pickModel(menu, 'z/expensive')).toMatchObject({ model: 'a/main', note: expect.stringContaining('не разрешена в настройках') })
   })
 })

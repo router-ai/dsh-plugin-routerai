@@ -166,7 +166,7 @@ describe('мост для интерфейса', () => {
       picker: { models: ['anthropic/claude-sonnet-5.5'], custom: false },
       utilityModel: 'deepseek/deepseek-v4.1-flash', lowBalance: 100,
       imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo',
-      videoModel: null, videoBudget: 100, problem: null,
+      videoModel: null, videoBudget: 100, imageChoices: [], videoChoices: [], voiceModel: 'x-ai/grok-voice-tts-1.0', voice: 'eve', problem: null,
     })
   })
 
@@ -193,6 +193,10 @@ describe('мост для интерфейса', () => {
     expect((await send('preferences', { videoModel: 'tbc/mischief-1', videoBudget: 30 })).status).toBe(200)
     expect((await send('overview')).body).toMatchObject({ videoModel: 'tbc/mischief-1', videoBudget: 30 })
     expect((await send('preferences', { videoBudget: 0 })).status).toBe(400)
+    expect((await send('preferences', { imageChoices: ['recraft/recraft-v4-vector', 'recraft/recraft-v4-vector'], voiceModel: null, voice: ' Kore ' })).status).toBe(200)
+    expect((await send('overview')).body).toMatchObject({ imageChoices: ['recraft/recraft-v4-vector'], voiceModel: null, voice: 'Kore' })
+    expect((await send('preferences', { voice: 'плохой; голос' })).status).toBe(400)
+    expect((await send('preferences', { videoChoices: Array.from({ length: 9 }, (_, n) => `demo/model-${n}`) })).status).toBe(400)
     const refused = await send('preferences', { models: ['какая-то модель'] })
     expect(refused.status).toBe(400)
     expect(refused.body.error).toContain('какая-то модель')

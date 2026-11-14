@@ -4,7 +4,7 @@
  * Плагин регистрирует маршрут `routerai`: запросы уходят в OpenAI-совместимый API RouterAI
  * через штатный адаптер pi-ai. Сверх этого плагин следит за каталогом моделей и ценами,
  * помогает получить ключ через браузер, показывает баланс и считает стоимость сессий,
- * даёт агенту инструменты для рисования картинок и съёмки видео и распознаёт речь для голосового ввода.
+ * даёт агенту инструменты для картинок, видео и озвучки текста и распознаёт речь для голосового ввода.
  *
  * Настройка из файла (обычно всё делается в Настройках → RouterAI):
  *
@@ -42,6 +42,7 @@ import { pricePair, windowLabel } from './money.ts'
 import { PreferenceStore } from './preferences.ts'
 import { buildRoute, describeModel, describeUnknownModel, isolatedAuth } from './provider.ts'
 import { registerSlashCommand } from './slash.ts'
+import { registerSpeakTool } from './speak.ts'
 import { registerSpeechProvider } from './speech.ts'
 import { STARTER_MODELS } from './starter.ts'
 
@@ -254,6 +255,7 @@ export function apply(ctx: Context, config: Config): void {
     registerDrawTool(scope, {
       apiBase, readKey,
       imageModel: () => preferences.current.imageModel,
+      imageChoices: () => preferences.current.imageChoices,
       findModel: slug => catalog.find(slug),
       watch: watchMedia,
       attachments: () => optional.attachments,
@@ -262,12 +264,23 @@ export function apply(ctx: Context, config: Config): void {
     registerFilmTool(scope, {
       apiBase, readKey,
       videoModel: () => preferences.current.videoModel,
+      videoChoices: () => preferences.current.videoChoices,
       videoBudget: () => preferences.current.videoBudget,
       findModel: slug => catalog.find(slug),
       watch: watchMedia,
       charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
       // Переменная для стенда: мок отвечает мгновенно, ждать по 5 секунд между проверками незачем.
       ...process.env['ROUTERAI_VIDEO_POLL_MS'] === undefined ? {} : { pollMs: Number(process.env['ROUTERAI_VIDEO_POLL_MS']) },
+    })
+  })
+
+  ctx.inject(['tools'], (scope) => {
+    registerSpeakTool(scope, {
+      apiBase, readKey,
+      voiceModel: () => preferences.current.voiceModel,
+      voice: () => preferences.current.voice,
+      watch: watchMedia,
+      charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
     })
   })
 

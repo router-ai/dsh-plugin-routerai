@@ -20,13 +20,25 @@ export interface Preferences {
   videoModel: string | null
   /** Потолок стоимости одного ролика, ₽: дороже инструмент снимать откажется. */
   videoBudget: number
+  /** Модели для картинок, из которых агент может выбирать под задачу (сверх основной). */
+  imageChoices: string[]
+  /** То же для видео. */
+  videoChoices: string[]
+  /** Модель озвучки текста; null — озвучка выключена. */
+  voiceModel: string | null
+  /** Голос модели озвучки: у каждой модели свой набор, список — на её странице в каталоге RouterAI. */
+  voice: string
 }
 
 export const DEFAULT_UTILITY_MODEL = 'deepseek/deepseek-v4.1-flash'
 export const DEFAULT_IMAGE_MODEL = 'bytedance-seed/seedream-5-5'
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
+export const DEFAULT_VOICE_MODEL = 'x-ai/grok-voice-tts-1.0'
+export const DEFAULT_VOICE = 'eve'
+/** Сколько моделей на выбор агенту можно добавить к основной. */
+export const CHOICES_LIMIT = 8
 
-const INITIAL: Preferences = { utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100, imageModel: DEFAULT_IMAGE_MODEL, speechModel: DEFAULT_SPEECH_MODEL, videoModel: null, videoBudget: 100 }
+const INITIAL: Preferences = { utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100, imageModel: DEFAULT_IMAGE_MODEL, speechModel: DEFAULT_SPEECH_MODEL, videoModel: null, videoBudget: 100, imageChoices: [], videoChoices: [], voiceModel: DEFAULT_VOICE_MODEL, voice: DEFAULT_VOICE }
 
 /** Привести список моделей к каноническому виду или объяснить, что с ним не так. */
 export function cleanModelList(value: unknown): string[] {
@@ -38,6 +50,19 @@ export function cleanModelList(value: unknown): string[] {
   }
   if (seen.size > PICKER_LIMIT) throw new Error(`В пикере может быть не больше ${PICKER_LIMIT} моделей`)
   return [...seen]
+}
+
+/** Список моделей на выбор агенту: без повторов и не длиннее предела. */
+export function cleanChoices(value: unknown): string[] {
+  const models = cleanModelList(value)
+  if (models.length > CHOICES_LIMIT) throw new Error(`На выбор агенту можно дать не больше ${CHOICES_LIMIT} моделей`)
+  return models
+}
+
+/** Идентификатор голоса: у провайдеров они вида `eve`, `Kore`, `en-US-Harper:MAI-Voice-2`. */
+function cleanVoice(value: string): string | undefined {
+  const voice = value.trim()
+  return /^[\w.:\- ]{1,80}$/.test(voice) ? voice : undefined
 }
 
 function fromDisk(raw: unknown): Preferences | undefined {
@@ -55,6 +80,11 @@ function fromDisk(raw: unknown): Preferences | undefined {
   if (isModelSlug(stored['speechModel'])) result.speechModel = stored['speechModel']
   if (stored['videoModel'] === null || isModelSlug(stored['videoModel'])) result.videoModel = stored['videoModel']
   if (typeof stored['videoBudget'] === 'number' && stored['videoBudget'] > 0) result.videoBudget = stored['videoBudget']
+  for (const field of ['imageChoices', 'videoChoices'] as const) {
+    try { if (stored[field] !== undefined) result[field] = cleanChoices(stored[field]) } catch { /* испорченный список — как пустой */ }
+  }
+  if (stored['voiceModel'] === null || isModelSlug(stored['voiceModel'])) result.voiceModel = stored['voiceModel']
+  if (typeof stored['voice'] === 'string' && cleanVoice(stored['voice']) !== undefined) result.voice = cleanVoice(stored['voice'])!
   return result
 }
 
@@ -121,6 +151,19 @@ export class PreferenceStore {
       const budget = patch['videoBudget']
       if (typeof budget !== 'number' || !Number.isFinite(budget) || budget <= 0) throw new Error('Потолок стоимости ролика: ожидалось положительное число')
       next.videoBudget = budget
+    }
+    for (const field of ['imageChoices', 'videoChoices'] as const) {
+      if (field in patch) next[field] = cleanChoices(patch[field])
+    }
+    if ('voiceModel' in patch) {
+      const model = patch['voiceModel']
+      if (model !== null && !isModelSlug(model)) throw new Error('Модель озвучки: ожидался идентификатор vendor/model или null')
+      next.voiceModel = model
+    }
+    if ('voice' in patch) {
+      const voice = typeof patch['voice'] === 'string' ? cleanVoice(patch['voice']) : undefined
+      if (voice === undefined) throw new Error('Голос: ожидался идентификатор голоса — буквы, цифры, дефис, двоеточие, до 80 символов')
+      next.voice = voice
     }
     await this.file.write(next)
     this.value = next

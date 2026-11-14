@@ -1,19 +1,21 @@
 // Рубли: форматирование сумм и цен. Модуль без зависимостей — общий для сервера и браузера.
 
-/** Сколько знаков после запятой показать, чтобы сумма не выглядела нулём и не шумела копейками. */
-function fractionDigits(amount: number): number {
+/**
+ * Сколько знаков после запятой показать: [обязательных, предельных]. Копейки показываются всегда,
+ * а третий и четвёртый знак — только у мелких сумм и только когда они не нулевые («0,50 ₽», «0,042 ₽», «0,0066 ₽»).
+ */
+function fractionDigits(amount: number): [number, number] {
   const size = Math.abs(amount)
   // Целые суммы и крупные — без копеек: «15 ₽», «1 235 ₽».
-  if (size === 0 || size >= 100 || Number.isInteger(amount)) return 0
-  if (size >= 1) return 2
-  if (size >= 0.01) return 3
-  return 4
+  if (size === 0 || size >= 100 || Number.isInteger(amount)) return [0, 0]
+  if (size >= 1) return [2, 2]
+  return size >= 0.01 ? [2, 3] : [2, 4]
 }
 
 export function rub(amount: number | null | undefined): string {
   if (amount === null || amount === undefined || !Number.isFinite(amount)) return '—'
-  const digits = fractionDigits(amount)
-  const text = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(amount)
+  const [least, most] = fractionDigits(amount)
+  const text = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: least, maximumFractionDigits: most }).format(amount)
   return `${text} ₽`
 }
 

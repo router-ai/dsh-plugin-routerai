@@ -45,3 +45,34 @@ export function allowedHint(values: readonly (string | number)[] | undefined, un
   if (values === undefined || values.length === 0) return ''
   return ` Допустимо: ${values.map(value => (typeof value === 'string' ? JSON.stringify(value) : String(value))).join(', ')}${unit}.`
 }
+
+/** Модели, между которыми агент может выбирать: основная из настроек плюс разрешённые пользователем. */
+export interface ModelMenu<Card> {
+  /** Основная модель — используется, когда агент не выбирал. */
+  main: string
+  /** Все разрешённые модели, основная первой. */
+  allowed: string[]
+  cards: Map<string, Card>
+}
+
+export function buildMenu<Card>(main: string, extras: readonly string[], find: (slug: string) => Card | undefined, fits: (card: Card) => boolean): ModelMenu<Card> {
+  const cards = new Map<string, Card>()
+  const allowed = [main]
+  const mainCard = find(main)
+  if (mainCard !== undefined) cards.set(main, mainCard)
+  for (const slug of extras) {
+    const card = find(slug)
+    // В меню попадают только модели, которые каталог знает и которые подходят инструменту.
+    if (slug === main || card === undefined || !fits(card)) continue
+    allowed.push(slug)
+    cards.set(slug, card)
+  }
+  return { main, allowed, cards }
+}
+
+/** Какую модель взять: выбор агента, если он из меню, иначе основную — с пояснением. */
+export function pickModel(menu: ModelMenu<unknown>, wish: string | undefined): { model: string; note?: string } {
+  if (wish === undefined || wish.trim() === '' || wish === menu.main) return { model: menu.main }
+  if (menu.allowed.includes(wish)) return { model: wish }
+  return { model: menu.main, note: `Модель ${wish} не разрешена в настройках — использована ${menu.main}` }
+}

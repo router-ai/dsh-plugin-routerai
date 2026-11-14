@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isChatModel, isImageModel, isSpeechModel, isVideoModel, ModelCatalog, readModelCard } from '../src/catalog.ts'
+import { isChatModel, isImageModel, isSpeechModel, isVideoModel, isVoiceModel, ModelCatalog, readModelCard } from '../src/catalog.ts'
 import { pricePair, rub, windowLabel } from '../src/money.ts'
 import { sampleCards, scratchDir } from './helpers.ts'
 
@@ -74,9 +74,20 @@ describe('разбор каталога RouterAI', () => {
     expect(plain).not.toHaveProperty('referencesExcludeFrames')
   })
 
+  it('знает модели озвучки и поддержку зерна', () => {
+    const voice = readModelCard({ id: 'demo/voice', name: 'Demo: Voice', architecture: { input_modalities: ['text'], output_modalities: ['speech'] }, pricing: { prompt: 0.0016, completion: 0 }, pricing_units: { prompt: 'token', completion: 'token' } })
+    expect(voice?.makes).toEqual(['speech'])
+    expect(isVoiceModel(voice!)).toBe(true)
+    expect(isChatModel(voice!)).toBe(false)
+    expect(voice?.price?.input).toBeCloseTo(1600)
+    expect(readModelCard({ id: 'demo/paint', name: 'P', architecture: { output_modalities: ['image'] }, image_seed: true })?.media?.seed).toBe(true)
+    expect(readModelCard({ id: 'demo/paint', name: 'P', architecture: { output_modalities: ['image'] }, image_seed: false })?.media?.seed).toBeUndefined()
+    expect(readModelCard({ id: 'demo/film', name: 'F', architecture: { input_modalities: ['text'], output_modalities: ['video'] }, supported_durations: [5], seed: true })?.media?.seed).toBe(true)
+  })
+
   it('отмечает видео-модели, которым нужно готовое видео на входе', () => {
     const upscaler = readModelCard({ id: 'demo/upscale', name: 'Demo: Upscale', architecture: { input_modalities: ['text', 'video'], output_modalities: ['video'] } })
-    expect(upscaler?.media).toEqual({ needsSource: true })
+    expect(upscaler?.media).toEqual({ takesVideo: true, needsSource: true })
     const ordinary = readModelCard({ id: 'demo/film', name: 'Demo: Film', architecture: { input_modalities: ['text', 'image', 'video'], output_modalities: ['video'] }, supported_durations: [5], supported_frame_images: ['first_frame'] })
     expect(ordinary?.media?.needsSource).toBeUndefined()
   })
@@ -91,6 +102,8 @@ describe('суммы и подписи', () => {
     expect(rub(1234.56)).toMatch(/^1\s235 ₽$/)
     expect(rub(12.5)).toBe('12,50 ₽')
     expect(rub(15)).toBe('15 ₽')
+    expect(rub(0.5)).toBe('0,50 ₽')
+    expect(rub(0.06)).toBe('0,06 ₽')
     expect(rub(0.0421)).toBe('0,042 ₽')
     expect(rub(0.00655)).toBe('0,0066 ₽')
     expect(rub(0)).toBe('0 ₽')

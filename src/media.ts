@@ -78,6 +78,8 @@ export interface DrawRequest {
   format?: string
   /** Исходные картинки (data-URI) для правки или переноса стиля. */
   references?: readonly string[]
+  /** Зерно: с тем же зерном и описанием модель повторяет результат. */
+  seed?: number
 }
 
 export async function drawPictures(apiBase: string, apiKey: string, request: DrawRequest, signal: AbortSignal): Promise<{ pictures: Picture[]; cost?: number }> {
@@ -90,6 +92,7 @@ export async function drawPictures(apiBase: string, apiKey: string, request: Dra
     ...request.quality === undefined ? {} : { quality: request.quality },
     ...request.background === undefined ? {} : { background: request.background },
     ...request.format === undefined ? {} : { output_format: request.format },
+    ...request.seed === undefined ? {} : { seed: request.seed },
     ...request.references === undefined || request.references.length === 0 ? {} : { input_references: request.references.map(url => ({ type: 'image_url', image_url: { url } })) },
   }, signal, 240_000)
   const pictures: Picture[] = []
@@ -151,6 +154,9 @@ export interface FilmRequest {
   references?: readonly string[]
   /** Делать ли звуковую дорожку. */
   audio?: boolean
+  seed?: number
+  /** Готовый ролик (data-URI) для продления, правки или апскейла. */
+  sourceVideo?: string
 }
 
 export interface Film {
@@ -176,6 +182,10 @@ export async function makeFilm(apiBase: string, apiKey: string, request: FilmReq
     ...request.firstFrame === undefined ? [] : [{ type: 'image_url', image_url: { url: request.firstFrame }, frame_type: 'first_frame' }],
     ...request.lastFrame === undefined ? [] : [{ type: 'image_url', image_url: { url: request.lastFrame }, frame_type: 'last_frame' }],
   ]
+  const inputs = [
+    ...(request.references ?? []).map(url => ({ type: 'image_url', image_url: { url } })),
+    ...request.sourceVideo === undefined ? [] : [{ type: 'video_url', video_url: { url: request.sourceVideo } }],
+  ]
   const job = await post(apiBase, '/videos', apiKey, {
     model: request.model,
     prompt: request.prompt,
@@ -183,8 +193,9 @@ export async function makeFilm(apiBase: string, apiKey: string, request: FilmReq
     ...request.aspectRatio === undefined ? {} : { aspect_ratio: request.aspectRatio },
     ...request.resolution === undefined ? {} : { resolution: request.resolution },
     ...frames.length === 0 ? {} : { frame_images: frames },
-    ...request.references === undefined || request.references.length === 0 ? {} : { input_references: request.references.map(url => ({ type: 'image_url', image_url: { url } })) },
+    ...inputs.length === 0 ? {} : { input_references: inputs },
     ...request.audio === undefined ? {} : { generate_audio: request.audio },
+    ...request.seed === undefined ? {} : { seed: request.seed },
   }, signal, 60_000)
   const jobId = typeof job['id'] === 'string' ? job['id'] : ''
   if (jobId === '') throw new MediaError('RouterAI не вернул идентификатор задачи на видео')
@@ -227,4 +238,79 @@ export async function makeFilm(apiBase: string, apiKey: string, request: FilmReq
   if (bytes.byteLength === 0) throw new MediaError('RouterAI отдал пустой файл видео')
   const price = cost(state)
   return price === undefined ? { bytes, jobId } : { bytes, jobId, cost: price }
+}
+
+export interface Spoken {
+  bytes: Uint8Array
+  /** `mp3` — как прислал RouterAI; `wav` — PCM, завёрнутый в заголовок WAV. */
+  format: 'mp3' | 'wav'
+  /** Длительность, если её можно вычислить (только для PCM). */
+  seconds?: number
+  cost?: number
+}
+
+/** PCM 16 бит моно → файл WAV. */
+export function wrapPcm(pcm: Uint8Array, rate: number): Uint8Array {
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0); header.writeUInt32LE(36 + pcm.byteLength, 4); header.write('WAVEfmt ', 8)
+  header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 2, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34)
+  header.write('data', 36); header.writeUInt32LE(pcm.byteLength, 40)
+  return new Uint8Array(Buffer.concat([header, Buffer.from(pcm)]))
+}
+
+/** Модели, которые отдают только PCM: запрос mp3 у них заканчивается ошибкой. */
+const PCM_ONLY = /^(google\/.*-tts|heygen\/)/
+
+/** Стоимость синтеза RouterAI сообщает отдельно — по идентификатору генерации из заголовка ответа. */
+async function generationCost(apiBase: string, apiKey: string, generationId: string, signal: AbortSignal): Promise<number | undefined> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const reply = await exchange(`${apiBase}/generation?id=${encodeURIComponent(generationId)}`, apiKey, undefined, signal, 10_000)
+      const total = (reply['data'] as { total_cost?: unknown } | undefined)?.total_cost
+      if (typeof total === 'number' && Number.isFinite(total)) return total
+    } catch {
+      // запись о генерации появляется не мгновенно
+    }
+    await new Promise(resolve => setTimeout(resolve, 700))
+  }
+  return undefined
+}
+
+/** Озвучить текст. Голос обязателен: у каждой модели свой набор. */
+export async function speakText(apiBase: string, apiKey: string, request: { model: string; text: string; voice: string }, signal: AbortSignal): Promise<Spoken> {
+  const pcmOnly = PCM_ONLY.test(request.model)
+  let response: Response
+  try {
+    response = await fetch(`${apiBase}/audio/speech`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', 'X-Title': 'DeepSeek Harness' },
+      body: JSON.stringify({ model: request.model, input: request.text, voice: request.voice, response_format: pcmOnly ? 'pcm' : 'mp3' }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
+    })
+  } catch (error) {
+    if (signal.aborted) throw error
+    throw new MediaError(`RouterAI не ответил: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: unknown } | null
+    const problem = payload?.error
+    const detail = typeof problem === 'string' ? problem : (problem as { message?: unknown } | undefined)?.message
+    throw new MediaError(typeof detail === 'string' && detail !== '' ? detail : `RouterAI ответил HTTP ${response.status}`, response.status)
+  }
+  const type = response.headers.get('content-type') ?? ''
+  const raw = new Uint8Array(await response.arrayBuffer())
+  if (raw.byteLength === 0) throw new MediaError('RouterAI вернул пустое аудио')
+  const spoken: Spoken = type.includes('audio/pcm')
+    ? (() => {
+        const rate = Number(/rate=(\d+)/.exec(type)?.[1] ?? 24_000)
+        return { bytes: wrapPcm(raw, rate), format: 'wav' as const, seconds: raw.byteLength / (rate * 2) }
+      })()
+    : { bytes: raw, format: 'mp3' as const }
+  const generationId = response.headers.get('x-generation-id')
+  if (generationId !== null) {
+    const price = await generationCost(apiBase, apiKey, generationId, signal)
+    if (price !== undefined) spoken.cost = price
+  }
+  return spoken
 }

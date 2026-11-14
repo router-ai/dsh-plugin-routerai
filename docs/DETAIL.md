@@ -20,5 +20,6 @@ others — behind a single key and bills in rubles. This plugin adds those model
 - Savings: session titles and context compaction run on an inexpensive utility model.
 - Images: ask the agent to draw or to edit an image from the project — the result appears in the chat and in the `routerai-media` folder.
 - Video: the agent makes short clips and animates images; enabled by choosing a model in the settings.
+- Text to speech: the agent synthesizes speech and saves the audio file to the project.
 - Voice input: RouterAI recognizes speech for the Voice input plugin.
 - The `/routerai` command for the same actions from the chat: `login`, `key`, `logout`, `status`, `models`, `find`.

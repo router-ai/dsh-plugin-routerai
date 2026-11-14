@@ -51,18 +51,23 @@ export interface MediaTraits {
   referencesExcludeFrames?: true
   /** Видео-модель умеет делать звуковую дорожку. */
   audio?: true
+  /** Модель принимает зерно: с тем же зерном и описанием результат повторяется. */
+  seed?: true
+  /** Видео-модель принимает готовый ролик на входе (продление, правка, апскейл). */
+  takesVideo?: true
   /** Модель работает только с готовым видео или аудио на входе (апскейл, аватары) — по одному описанию ролик не снимет. */
   needsSource?: true
 }
 
-export type Output = 'text' | 'image' | 'transcription' | 'video'
+export type Output = 'text' | 'image' | 'transcription' | 'video' | 'speech'
 
-const OUTPUTS: readonly Output[] = ['text', 'image', 'transcription', 'video']
+const OUTPUTS: readonly Output[] = ['text', 'image', 'transcription', 'video', 'speech']
 
 export const isChatModel = (card: ModelCard): boolean => card.makes.includes('text')
 export const isImageModel = (card: ModelCard): boolean => card.makes.includes('image')
 export const isSpeechModel = (card: ModelCard): boolean => card.makes.includes('transcription')
 export const isVideoModel = (card: ModelCard): boolean => card.makes.includes('video')
+export const isVoiceModel = (card: ModelCard): boolean => card.makes.includes('speech')
 
 const SLUG = /^~?[a-z0-9][\w.-]*\/[a-z0-9][\w.:-]*$/i
 
@@ -120,6 +125,7 @@ function mediaTraits(raw: Bag, architecture: Bag, makes: readonly Output[]): Med
       const values = strings(raw[field])
       if (values.length > 0) traits[key] = values
     }
+    if (raw['image_seed'] === true) traits.seed = true
     if (raw['supported_image_references'] === false) traits.references = 0
     else if (raw['supported_image_references'] === true) traits.references = Math.floor(amount(raw['max_image_references']) ?? 1)
   }
@@ -135,6 +141,8 @@ function mediaTraits(raw: Bag, architecture: Bag, makes: readonly Output[]): Med
     else if (raw['supports_reference_images'] === true) traits.references = Math.floor(amount(raw['max_image_references']) ?? 1)
     if (raw['frames_exclusive_with_references'] === true && (traits.references ?? 0) > 0) traits.referencesExcludeFrames = true
     if (raw['generate_audio'] === true) traits.audio = true
+    if (raw['seed'] === true) traits.seed = true
+    if (strings(architecture['input_modalities']).includes('video')) traits.takesVideo = true
     if (durations.length === 0 && frames.length === 0 && (sources.includes('video') || sources.includes('audio'))) traits.needsSource = true
   }
   return traits
@@ -156,7 +164,7 @@ function splitName(name: string, slug: string): { maker: string; title: string }
   return { maker: vendor.charAt(0).toUpperCase() + vendor.slice(1), title: name.trim() || slug }
 }
 
-/** Одна запись ответа; undefined для повреждённых записей и моделей, с которыми плагин не работает (эмбеддинги, озвучка). */
+/** Одна запись ответа; undefined для повреждённых записей и моделей, с которыми плагин не работает (эмбеддинги, ранжирование). */
 export function readModelCard(entry: unknown): ModelCard | undefined {
   const raw = bag(entry)
   if (!isModelSlug(raw['id'])) return undefined
@@ -219,7 +227,7 @@ export async function downloadModelList(apiBase: string, signal?: AbortSignal): 
 }
 
 interface Snapshot {
-  format: 5
+  format: 6
   source: string
   savedAt: number
   cards: ModelCard[]
@@ -227,10 +235,10 @@ interface Snapshot {
 
 function acceptSnapshot(raw: unknown): Snapshot | undefined {
   const value = bag(raw)
-  if (value['format'] !== 5 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
+  if (value['format'] !== 6 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
   if (!Array.isArray(value['cards'])) return undefined
   const cards = (value['cards'] as unknown[]).filter((card): card is ModelCard => isModelSlug(bag(card)['slug']) && Array.isArray(bag(card)['makes']))
-  return { format: 5, source: value['source'], savedAt: value['savedAt'], cards }
+  return { format: 6, source: value['source'], savedAt: value['savedAt'], cards }
 }
 
 export interface ModelCatalogOptions {
@@ -295,7 +303,7 @@ export class ModelCatalog {
       const cards = await this.download(this.options.apiBase)
       this.lastError = undefined
       this.adopt(cards, this.clock())
-      await this.disk?.write({ format: 5, source: this.options.apiBase, savedAt: this.stamp, cards })
+      await this.disk?.write({ format: 6, source: this.options.apiBase, savedAt: this.stamp, cards })
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
     }

@@ -15,7 +15,9 @@ import { DRAW_TOOL, MEDIA_FOLDER } from './links.ts'
 import { drawPictures } from './media.ts'
 import type { Picture } from './media.ts'
 import { rub } from './money.ts'
-import { allowedHint, registerLiveTool } from './toolkit.ts'
+import { allowedHint, buildMenu, pickModel, registerLiveTool } from './toolkit.ts'
+import type { ModelMenu } from './toolkit.ts'
+import { isImageModel } from './catalog.ts'
 
 export { DRAW_TOOL, fileStem, MEDIA_FOLDER }
 /** Предел числа картинок за вызов, если модель своего не сообщает. */
@@ -26,6 +28,8 @@ export interface DrawDeps {
   readKey(): Promise<string | undefined>
   /** Модель для картинок из настроек; null — рисование выключено. */
   imageModel(): string | null
+  /** Модели, из которых агент может выбирать сверх основной. */
+  imageChoices(): readonly string[]
   findModel(slug: string): ModelCard | undefined
   attachments(): Context['attachments'] | undefined
   /** Картинка оплачена: учесть её в стоимости сессии. */
@@ -65,7 +69,20 @@ function defaultSize(sizes: readonly string[] | undefined): string | undefined {
 const pictures = (shown: readonly ImageAttachmentRef[]): ContentBlock[] => shown.map(attachment => ({ type: 'image', attachment }))
 
 /** Описание инструмента под выбранную модель: агент видит, что она умеет, и не просит невозможного. */
-function describeTool(card: ModelCard | undefined) {
+/** Одна строка о модели для меню: за что платим и чем она отличается. */
+function menuLine(card: ModelCard): string {
+  const traits = card.media
+  const facts = [
+    card.perImage !== undefined ? `от ${rub(card.perImage)} за картинку` : traits?.billedBy === 'token' ? 'оплата по токенам' : '',
+    traits?.formats?.includes('svg') === true ? 'векторная графика (SVG)' : '',
+    traits?.backgrounds?.includes('transparent') === true ? 'прозрачный фон' : '',
+    (traits?.references ?? 1) > 0 ? 'правка исходных картинок' : 'без исходных картинок',
+    traits?.qualities !== undefined ? 'настройка качества' : '',
+  ].filter(fact => fact !== '')
+  return `"${card.slug}" — ${card.title}: ${facts.join(', ')}`
+}
+
+function describeTool(card: ModelCard | undefined, menu: ModelMenu<ModelCard> | undefined) {
   const traits = card?.media
   const most = traits?.maxCount ?? DEFAULT_MOST
   const takes = traits?.references
@@ -77,6 +94,9 @@ function describeTool(card: ModelCard | undefined) {
     quality: traits?.qualities === undefined ? unsupported : `Качество; выше — дороже.${allowedHint(traits.qualities)}`,
     background: traits?.backgrounds === undefined ? unsupported : `Фон; transparent — прозрачный (для логотипов и значков, нужен формат png или webp).${allowedHint(traits.backgrounds)}`,
     format: traits?.formats === undefined ? unsupported : `Формат файла.${allowedHint(traits.formats)}`,
+    seed: traits?.seed === true ? 'Зерно (целое число): с тем же зерном и описанием модель повторит результат. Укажи, когда нужно воспроизвести или слегка изменить прошлую картинку.' : unsupported,
+    model: menu === undefined || menu.allowed.length < 2 ? ''
+      : `Какой моделью рисовать. По умолчанию "${menu.main}". Выбирай другую, только если задаче нужны её возможности. Допустимые параметры ниже указаны для модели по умолчанию; у других моделей они могут отличаться.\n${menu.allowed.map(slug => menuLine(menu.cards.get(slug)!)).join('\n')}`,
     references: takes === 0 ? 'Выбранная модель не принимает исходные картинки — не указывай этот параметр.'
       : `Пути к картинкам в рабочем каталоге, на основе которых нужно рисовать: чтобы изменить существующую картинку, перенести стиль или сохранить персонажа. В описании скажи, что с ними сделать.${takes === undefined ? '' : ` Не больше ${takes}.`}`,
     tool: 'Нарисовать картинку по текстовому описанию (иллюстрация, логотип, макет, схема)'
@@ -88,9 +108,15 @@ function describeTool(card: ModelCard | undefined) {
   }
 }
 
+function menuOf(deps: DrawDeps): ModelMenu<ModelCard> | undefined {
+  const main = deps.imageModel()
+  return main === null ? undefined : buildMenu(main, deps.imageChoices(), deps.findModel, isImageModel)
+}
+
 function buildDrawTool(ctx: Context, deps: DrawDeps): ToolDefinition {
   const selected = deps.imageModel()
-  const text = describeTool(selected === null ? undefined : deps.findModel(selected))
+  const menu = menuOf(deps)
+  const text = describeTool(selected === null ? undefined : deps.findModel(selected), menu)
   return defineTool({
     name: DRAW_TOOL,
     description: text.tool,
@@ -103,6 +129,9 @@ function buildDrawTool(ctx: Context, deps: DrawDeps): ToolDefinition {
       background: { type: 'string', description: text.background },
       format: { type: 'string', description: text.format },
       references: { type: 'array', items: { type: 'string' }, description: text.references },
+      seed: { type: 'integer', description: text.seed },
+      // Параметр выбора модели есть, только когда пользователь разрешил больше одной.
+      ...text.model === '' ? {} : { model: { type: 'string' as const, enum: menu!.allowed, description: text.model } },
       file_name: { type: 'string', description: 'Имя файла без расширения, латиницей. По умолчанию составляется из описания.' },
     },
     output: {
@@ -133,8 +162,10 @@ function buildDrawTool(ctx: Context, deps: DrawDeps): ToolDefinition {
     presentCall: args => ({ card: 'generic', kind: 'other', title: `Рисую: ${args.prompt.length > 80 ? `${args.prompt.slice(0, 79)}…` : args.prompt}` }),
     presentResult: (_args, result) => ({ card: 'generic', title: 'Картинка RouterAI', content: result.content.filter(block => block.type === 'image' || block.type === 'text') }),
     execute: async (args, run) => {
-      const model = deps.imageModel()
-      if (model === null) throw new Error('Рисование картинок выключено в Настройках → RouterAI.')
+      const current = menuOf(deps)
+      if (current === undefined) throw new Error('Рисование картинок выключено в Настройках → RouterAI.')
+      const picked = pickModel(current, (args as { model?: string }).model)
+      const model = picked.model
       const key = await deps.readKey()
       if (key === undefined) throw new Error('Нет ключа RouterAI. Войдите: Настройки → RouterAI или команда /routerai login.')
 
@@ -146,7 +177,10 @@ function buildDrawTool(ctx: Context, deps: DrawDeps): ToolDefinition {
       const quality = fitOption(args.quality, traits?.qualities, 'Качество')
       const background = fitOption(args.background, traits?.backgrounds, 'Фон')
       const format = fitOption(args.format, traits?.formats, 'Формат')
-      const notes = [count.note, aspect.note, size.note, quality.note, background.note, format.note].filter((note): note is string => note !== undefined)
+      const seed = args.seed === undefined || traits?.seed === true ? args.seed : undefined
+      const notes = [picked.note, count.note, aspect.note, size.note, quality.note, background.note, format.note,
+        args.seed !== undefined && seed === undefined ? 'Модель не поддерживает зерно — результат не будет воспроизводимым' : undefined,
+      ].filter((note): note is string => note !== undefined)
 
       // Исходные картинки читаются из проекта до платного запроса: ошибка в пути не должна стоить денег.
       const wanted = (args.references ?? []).filter(path => path.trim() !== '')
@@ -169,6 +203,7 @@ function buildDrawTool(ctx: Context, deps: DrawDeps): ToolDefinition {
         ...background.value === undefined ? {} : { background: background.value },
         ...format.value === undefined ? {} : { format: format.value },
         ...references.length === 0 ? {} : { references },
+        ...seed === undefined ? {} : { seed },
       }, run.signal)
 
       const stem = fileStem(args.file_name, args.prompt)
@@ -212,8 +247,8 @@ export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
     // Инструмент виден агенту, только пока рисование включено в настройках.
     enabled: () => deps.imageModel() !== null,
     signature: () => {
-      const model = deps.imageModel()
-      return JSON.stringify([model, model === null ? null : deps.findModel(model)?.media ?? null])
+      const menu = menuOf(deps)
+      return JSON.stringify(menu === undefined ? null : menu.allowed.map(slug => [slug, menu.cards.get(slug)?.media ?? null, menu.cards.get(slug)?.perImage ?? null]))
     },
     watch: deps.watch,
   })

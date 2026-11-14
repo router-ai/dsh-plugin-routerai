@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { VIDEO_TOOL } from '../links.ts'
+import { SPEAK_TOOL, VIDEO_TOOL } from '../links.ts'
 import { rub } from '../money.ts'
 import type { Translate } from './texts.ts'
 
@@ -26,15 +26,16 @@ interface Props {
   openFile(path: string): void
 }
 
-/** Описание картинки из аргументов вызова; пока модель их дописывает, JSON может быть неполным. */
+/** Описание (или озвучиваемый текст) из аргументов вызова; пока модель их дописывает, JSON может быть неполным. */
 function promptOf(block: Props['block']): string {
   for (const raw of [block.argsRaw, block.call?.argsRaw]) {
     if (raw === undefined) continue
     try {
-      const prompt = (JSON.parse(raw) as { prompt?: unknown }).prompt
+      const args = JSON.parse(raw) as { prompt?: unknown; text?: unknown }
+      const prompt = args.prompt ?? args.text
       if (typeof prompt === 'string') return prompt
     } catch {
-      const partial = /"prompt"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(raw)?.[1]
+      const partial = /"(?:prompt|text)"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(raw)?.[1]
       if (partial !== undefined) return partial.replace(/\\n/g, ' ').replace(/\\(.)/g, '$1')
     }
   }
@@ -53,12 +54,15 @@ function Picture({ attachment, loadImage }: { attachment: ImageAttachmentRef; lo
 
 export function DrawCard({ t, phase, toolName, block, loadImage, openFile }: Props) {
   const prompt = promptOf(block)
-  const video = toolName === VIDEO_TOOL
+  // Какие подписи показывать: картинка, видео или озвучка.
+  const kind = toolName === VIDEO_TOOL ? 'film' : toolName === SPEAK_TOOL ? 'voice' : 'draw'
+  const titles = { draw: ['drawing', 'drawn', 'drawFailed'], film: ['filming', 'filmed', 'filmFailed'], voice: ['voicing', 'voiced', 'voiceFailed'] } as const
+  const [working, done, failed] = titles[kind]
 
   if (phase !== 'result') {
     return (
       <div className="rai-drawn" data-routerai="draw-card">
-        <div className="rai-line"><span className="rai-busy" /><b>{t(video ? 'filming' : 'drawing')}</b></div>
+        <div className="rai-line"><span className="rai-busy" /><b>{t(working)}</b></div>
         {prompt === '' ? null : <span className="rai-note">{prompt}</span>}
       </div>
     )
@@ -68,7 +72,7 @@ export function DrawCard({ t, phase, toolName, block, loadImage, openFile }: Pro
     const reason = block.content?.find(item => item.type === 'text')?.text ?? block.error?.reason ?? ''
     return (
       <div className="rai-drawn" data-routerai="draw-card">
-        <b>{t(video ? 'filmFailed' : 'drawFailed')}</b>
+        <b>{t(failed)}</b>
         <span className="rai-alert">{reason}</span>
       </div>
     )
@@ -81,7 +85,7 @@ export function DrawCard({ t, phase, toolName, block, loadImage, openFile }: Pro
     <div className="rai-drawn" data-routerai="draw-card">
       {shown.length === 0 ? null : <div className="rai-gallery">{shown.map(attachment => <Picture key={attachment.attachmentId} attachment={attachment} loadImage={loadImage} />)}</div>}
       <div className="rai-line">
-        <b>{t(video ? 'filmed' : 'drawn')}</b>
+        <b>{t(done)}</b>
         {facts === '' ? null : <span className="rai-faint">{facts}</span>}
       </div>
       {prompt === '' ? null : <span className="rai-note">{prompt}</span>}
