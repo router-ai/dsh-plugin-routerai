@@ -467,10 +467,10 @@
     ]
    },
    "pricing": {
-    "prompt": 5.3937195e-05,
-    "completion": 0.00032362317,
-    "web_search": 1.51024146,
-    "image_output": 0.0064724634
+    "prompt": 5.339854e-05,
+    "completion": 0.00032039124,
+    "web_search": 1.49515912,
+    "image_output": 0.0064078248
    },
    "pricing_units": {
     "prompt": "token",
@@ -525,7 +525,7 @@
     {
      "unit": "token",
      "variant": null,
-     "price": 0.0064724634
+     "price": 0.0064078248
     }
    ]
   },
@@ -547,8 +547,8 @@
     ]
    },
    "pricing": {
-    "prompt": 0.0003592217187,
-    "seconds": 0.0003592217187,
+    "prompt": 0.0003556342764,
+    "seconds": 0.0003556342764,
     "completion": 0.0
    },
    "pricing_units": {
@@ -579,7 +579,7 @@
     ]
    },
    "pricing": {
-    "image_output": 2.1574878
+    "image_output": 2.1359416
    },
    "pricing_units": {
     "image_output": "image"
@@ -639,12 +639,12 @@
     {
      "unit": "image",
      "variant": null,
-     "price": 2.1574878
+     "price": 2.1359416
     },
     {
      "unit": "image",
      "variant": "high_resolution",
-     "price": 3.77560365
+     "price": 3.7378978
     }
    ]
   },
@@ -668,7 +668,7 @@
    },
    "pricing": {
     "prompt": 0.0,
-    "seconds": 0.53937195,
+    "seconds": 0.5339854,
     "completion": 0.0
    },
    "pricing_units": {

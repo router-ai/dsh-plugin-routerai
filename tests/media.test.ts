@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { fileStem } from '../src/draw.ts'
 import { readFrame } from '../src/film.ts'
-import { fitAspectRatio, fitCount, fitDuration, fitResolution, ratioValue, resolutionHeight } from '../src/fit.ts'
+import { fitAspectRatio, fitCount, fitDuration, fitImageSize, fitOption, fitResolution, imageSizePixels, ratioValue, resolutionHeight } from '../src/fit.ts'
 import { drawPictures, makeFilm, MediaError, recognizeSpeech, sniffPictureType, wavSeconds } from '../src/media.ts'
 import { scratchDir, sendJson, stubServer } from './helpers.ts'
 
@@ -33,6 +33,18 @@ describe('картинки', () => {
     expect(result.pictures).toHaveLength(2)
     expect(result.pictures[0]).toMatchObject({ type: 'image/png' })
     expect(Buffer.from(result.pictures[0]!.bytes).equals(PNG)).toBe(true)
+  })
+
+  it('передаёт размер, качество, фон, формат и исходные картинки', async () => {
+    const stub = await stubServer((_exchange, response) => sendJson(response, 200, { data: [{ b64_json: PNG.toString('base64') }] }))
+    await drawPictures(`${stub.origin}/api/v1`, KEY, {
+      model: 'demo/painter', prompt: 'сделай фон прозрачным', size: '2K', quality: 'high', background: 'transparent', format: 'webp',
+      references: ['data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'],
+    }, new AbortController().signal)
+    expect(stub.seen[0]!.body).toEqual({
+      model: 'demo/painter', prompt: 'сделай фон прозрачным', resolution: '2K', quality: 'high', background: 'transparent', output_format: 'webp',
+      input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }, { type: 'image_url', image_url: { url: 'data:image/png;base64,BBBB' } }],
+    })
   })
 
   it('необязательные параметры в запрос не попадают', async () => {
@@ -137,6 +149,22 @@ describe('видео', () => {
     expect(stub.seen.every(exchange => exchange.headers.authorization === `Bearer ${KEY}`)).toBe(true)
   })
 
+  it('передаёт последний кадр, референсы и звук', async () => {
+    const stub = await studio([{ status: 'completed' }])
+    await makeFilm(`${stub.origin}/api/v1`, KEY, { model: 'demo/director', prompt: 'переход', firstFrame: 'data:image/png;base64,AAAA', lastFrame: 'data:image/png;base64,ZZZZ', audio: false },
+      new AbortController().signal, { pollMs: 5 })
+    expect(stub.seen[0]!.body).toEqual({
+      model: 'demo/director', prompt: 'переход', generate_audio: false,
+      frame_images: [
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' }, frame_type: 'first_frame' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,ZZZZ' }, frame_type: 'last_frame' },
+      ],
+    })
+    const withReferences = await studio([{ status: 'completed' }])
+    await makeFilm(`${withReferences.origin}/api/v1`, KEY, { model: 'demo/director', prompt: 'герой идёт', references: ['data:image/png;base64,CCCC'] }, new AbortController().signal, { pollMs: 5 })
+    expect(withReferences.seen[0]!.body).toEqual({ model: 'demo/director', prompt: 'герой идёт', input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,CCCC' } }] })
+  })
+
   it('сообщает причину, если задача не удалась, и не ждёт дольше отведённого', async () => {
     const failed = await studio([{ status: 'failed', error: 'content policy' }])
     await expect(makeFilm(`${failed.origin}/api/v1`, KEY, { model: 'm/x', prompt: 'p' }, new AbortController().signal, { pollMs: 5 })).rejects.toThrow('RouterAI не снял видео: content policy')
@@ -174,7 +202,7 @@ describe('видео', () => {
     expect(await readFrame(workspace, `${workspace}/art/cat.png`)).toMatch(/^data:image\/png;base64,/)
     await expect(readFrame(workspace, '../secret.png')).rejects.toThrow(/внутри рабочего каталога/)
     await expect(readFrame(workspace, 'link.png')).rejects.toThrow(/внутри рабочего каталога/)
-    await expect(readFrame(workspace, 'notes.txt')).rejects.toThrow(/должен быть картинкой/)
+    await expect(readFrame(workspace, 'notes.txt')).rejects.toThrow(/нужна картинка PNG, JPEG, WebP или GIF/)
     await expect(readFrame(workspace, 'нет-такого.png')).rejects.toThrow(/не найден/)
   })
 })
@@ -216,6 +244,23 @@ describe('подгонка запроса под модель', () => {
     expect(fitCount(undefined, 4)).toEqual({ value: 1 })
     expect(fitCount(0, 4)).toEqual({ value: 1 })
     expect(fitCount(9, 4).value).toBe(4)
+  })
+
+  it('подбирает размер картинки по ближайшему уровню', () => {
+    const sizes = ['768', '1K', '1.5K', '2K', '4K']
+    expect(fitImageSize('2k', sizes)).toEqual({ value: '2K' })
+    expect(fitImageSize('2.5K', sizes)).toMatchObject({ value: '2K', note: expect.stringContaining('взято ближайшее, 2K') })
+    expect(fitImageSize('512', sizes).value).toBe('768')
+    expect(fitImageSize(undefined, sizes)).toEqual({ value: undefined })
+    expect(imageSizePixels('1.5K')).toBe(1536)
+    expect(imageSizePixels('768')).toBe(768)
+  })
+
+  it('качество, фон и формат применяет только если модель их знает', () => {
+    expect(fitOption('Transparent', ['auto', 'transparent', 'opaque'], 'Фон')).toEqual({ value: 'transparent' })
+    expect(fitOption('transparent', ['auto', 'opaque'], 'Фон')).toMatchObject({ value: undefined, note: expect.stringContaining('допустимо: auto, opaque') })
+    expect(fitOption('high', undefined, 'Качество')).toMatchObject({ value: undefined, note: expect.stringContaining('не поддерживает') })
+    expect(fitOption(undefined, ['png'], 'Формат')).toEqual({ value: undefined })
   })
 
   it('понимает обозначения соотношений и разрешений', () => {

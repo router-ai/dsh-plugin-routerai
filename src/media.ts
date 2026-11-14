@@ -69,6 +69,15 @@ export interface DrawRequest {
   /** Соотношение сторон, например 16:9; допустимые значения зависят от модели. */
   aspectRatio?: string
   count?: number
+  /** Уровень размера: 1K, 2K, 4K… */
+  size?: string
+  quality?: string
+  /** Фон: auto, transparent, opaque. */
+  background?: string
+  /** Формат файла: png, jpeg, webp, svg, gif. */
+  format?: string
+  /** Исходные картинки (data-URI) для правки или переноса стиля. */
+  references?: readonly string[]
 }
 
 export async function drawPictures(apiBase: string, apiKey: string, request: DrawRequest, signal: AbortSignal): Promise<{ pictures: Picture[]; cost?: number }> {
@@ -77,6 +86,11 @@ export async function drawPictures(apiBase: string, apiKey: string, request: Dra
     prompt: request.prompt,
     ...request.aspectRatio === undefined ? {} : { aspect_ratio: request.aspectRatio },
     ...request.count === undefined ? {} : { n: request.count },
+    ...request.size === undefined ? {} : { resolution: request.size },
+    ...request.quality === undefined ? {} : { quality: request.quality },
+    ...request.background === undefined ? {} : { background: request.background },
+    ...request.format === undefined ? {} : { output_format: request.format },
+    ...request.references === undefined || request.references.length === 0 ? {} : { input_references: request.references.map(url => ({ type: 'image_url', image_url: { url } })) },
   }, signal, 240_000)
   const pictures: Picture[] = []
   for (const item of Array.isArray(payload['data']) ? payload['data'] as Record<string, unknown>[] : []) {
@@ -131,6 +145,12 @@ export interface FilmRequest {
   resolution?: string
   /** Первый кадр ролика: картинка в виде data-URI. */
   firstFrame?: string
+  /** Последний кадр: ролик станет переходом от первого кадра к нему. */
+  lastFrame?: string
+  /** Картинки-референсы персонажа или стиля (data-URI). */
+  references?: readonly string[]
+  /** Делать ли звуковую дорожку. */
+  audio?: boolean
 }
 
 export interface Film {
@@ -152,13 +172,19 @@ const FAILED = new Set(['failed', 'cancelled', 'expired'])
 
 /** Снять видео: создать задачу, дождаться готовности и скачать результат. */
 export async function makeFilm(apiBase: string, apiKey: string, request: FilmRequest, signal: AbortSignal, options: FilmOptions = {}): Promise<Film> {
+  const frames = [
+    ...request.firstFrame === undefined ? [] : [{ type: 'image_url', image_url: { url: request.firstFrame }, frame_type: 'first_frame' }],
+    ...request.lastFrame === undefined ? [] : [{ type: 'image_url', image_url: { url: request.lastFrame }, frame_type: 'last_frame' }],
+  ]
   const job = await post(apiBase, '/videos', apiKey, {
     model: request.model,
     prompt: request.prompt,
     ...request.seconds === undefined ? {} : { duration: request.seconds },
     ...request.aspectRatio === undefined ? {} : { aspect_ratio: request.aspectRatio },
     ...request.resolution === undefined ? {} : { resolution: request.resolution },
-    ...request.firstFrame === undefined ? {} : { frame_images: [{ type: 'image_url', image_url: { url: request.firstFrame }, frame_type: 'first_frame' }] },
+    ...frames.length === 0 ? {} : { frame_images: frames },
+    ...request.references === undefined || request.references.length === 0 ? {} : { input_references: request.references.map(url => ({ type: 'image_url', image_url: { url } })) },
+    ...request.audio === undefined ? {} : { generate_audio: request.audio },
   }, signal, 60_000)
   const jobId = typeof job['id'] === 'string' ? job['id'] : ''
   if (jobId === '') throw new MediaError('RouterAI не вернул идентификатор задачи на видео')

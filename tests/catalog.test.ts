@@ -24,7 +24,7 @@ describe('разбор каталога RouterAI', () => {
     expect(painter.makes).toEqual(['image'])
     expect(isImageModel(painter)).toBe(true)
     expect(isChatModel(painter)).toBe(false)
-    expect(painter.perImage).toBeCloseTo(2.1574878, 5)
+    expect(painter.perImage).toBeCloseTo(2.1359416, 5)
 
     // Модель, которая и отвечает текстом, и рисует: годится и в пикер, и для картинок.
     expect(card('google/gemini-3.1-flash-image').makes).toEqual(['text', 'image'])
@@ -32,6 +32,8 @@ describe('разбор каталога RouterAI', () => {
 
     expect(painter.media).toMatchObject({ billedBy: 'image', maxCount: expect.any(Number) })
     expect(painter.media?.aspectRatios).toContain('16:9')
+    expect(painter.media).toMatchObject({ sizes: ['1K', '1.5K', '2K'], backgrounds: ['auto', 'transparent', 'opaque'], formats: ['png', 'jpeg'], references: 10 })
+    expect(painter.media?.qualities).toBeUndefined()
     // Модель с оплатой по токенам: цену за картинку заранее не назвать.
     expect(card('google/gemini-3.1-flash-image').media?.billedBy).toBe('token')
     expect(card('anthropic/claude-sonnet-5.5').media).toBeUndefined()
@@ -41,12 +43,12 @@ describe('разбор каталога RouterAI', () => {
     expect(director.media?.needsSource).toBeUndefined()
     expect(isVideoModel(director)).toBe(true)
     expect(isChatModel(director)).toBe(false)
-    expect(director.perSecond).toBeCloseTo(0.53937195, 6)
+    expect(director.perSecond).toBeCloseTo(0.5339854, 6)
     expect(director.durations).toEqual([3, 5])
 
     const listener = card('openai/whisper-large-v3-turbo')
     expect(isSpeechModel(listener)).toBe(true)
-    expect(listener.perSecond).toBeCloseTo(0.0003592217187, 9)
+    expect(listener.perSecond).toBeCloseTo(0.0003556342764, 9)
   })
 
   it('разделяет производителя и название, отмечает возможности', () => {
@@ -60,6 +62,16 @@ describe('разбор каталога RouterAI', () => {
     expect(price?.output).toBeCloseTo(1078.7439, 4)
     expect(price?.cachedInput).toBeCloseTo(10.787439, 4)
     expect(price?.cacheWrite).toBeCloseTo(269.685975, 4)
+  })
+
+  it('читает, что видео-модель умеет с референсами, кадрами и звуком', () => {
+    const film = (extra: object) => readModelCard({ id: 'demo/film', name: 'Demo: Film', architecture: { input_modalities: ['text', 'image'], output_modalities: ['video'] }, supported_durations: [5], ...extra })?.media
+    expect(film({ supported_frame_images: ['first_frame', 'last_frame'], supports_reference_images: true, max_image_references: 9, frames_exclusive_with_references: true, generate_audio: true }))
+      .toMatchObject({ frames: ['first_frame', 'last_frame'], references: 9, referencesExcludeFrames: true, audio: true })
+    const plain = film({ supported_frame_images: ['first_frame'], supports_reference_images: false, frames_exclusive_with_references: true, generate_audio: null })
+    expect(plain).toMatchObject({ references: 0 })
+    expect(plain).not.toHaveProperty('audio')
+    expect(plain).not.toHaveProperty('referencesExcludeFrames')
   })
 
   it('отмечает видео-модели, которым нужно готовое видео на входе', () => {

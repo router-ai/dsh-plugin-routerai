@@ -56,6 +56,26 @@ function fitChoice(wanted: string | undefined, allowed: readonly string[] | unde
 export const fitAspectRatio = (wanted: string | undefined, allowed: readonly string[] | undefined): Fitted<string> =>
   fitChoice(wanted, allowed, ratioValue, 'Соотношение сторон')
 
+/** Уровень размера картинки в пикселях по длинной стороне: «1K» → 1024, «1.5K» → 1536, «768» → 768. */
+export function imageSizePixels(size: string): number | undefined {
+  const text = size.trim().toLowerCase()
+  const thousands = /^(\d+(?:\.\d+)?)k$/.exec(text)
+  if (thousands !== null) return Math.round(Number(thousands[1]) * 1024)
+  return /^\d{3,5}$/.test(text) ? Number(text) : undefined
+}
+
+export const fitImageSize = (wanted: string | undefined, allowed: readonly string[] | undefined): Fitted<string> =>
+  fitChoice(wanted, allowed, imageSizePixels, 'Размер')
+
+/** Параметр без «ближайшего» значения (качество, фон, формат): либо модель его знает, либо не отправляем. */
+export function fitOption(wanted: string | undefined, allowed: readonly string[] | undefined, label: string): Fitted<string> {
+  if (wanted === undefined || wanted.trim() === '') return { value: undefined }
+  if (allowed === undefined || allowed.length === 0) return { value: undefined, note: `${label}: модель этот параметр не поддерживает — «${wanted}» не применено` }
+  const exact = allowed.find(option => option.toLowerCase() === wanted.trim().toLowerCase())
+  if (exact !== undefined) return { value: exact }
+  return { value: undefined, note: `${label} «${wanted}» модель не поддерживает — не применено (допустимо: ${allowed.join(', ')})` }
+}
+
 export const fitResolution = (wanted: string | undefined, allowed: readonly string[] | undefined): Fitted<string> =>
   fitChoice(wanted, allowed, resolutionHeight, 'Разрешение')
 

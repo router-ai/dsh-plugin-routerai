@@ -38,6 +38,19 @@ export interface MediaTraits {
   frames?: ('first_frame' | 'last_frame')[]
   /** За что берётся плата: за картинку, за токены или за мегапиксели. От этого зависит, можно ли назвать цену заранее. */
   billedBy?: 'image' | 'token' | 'megapixel'
+  /** Уровни размера картинки (1K, 2K, 4K…); от размера зависит цена. */
+  sizes?: string[]
+  qualities?: string[]
+  /** Варианты фона; `transparent` — прозрачный. */
+  backgrounds?: string[]
+  /** Форматы файла картинки (png, jpeg, webp, svg, gif). */
+  formats?: string[]
+  /** Сколько исходных картинок модель принимает (правка, стиль, персонаж); 0 — не принимает. */
+  references?: number
+  /** Видео-модель не совмещает опорные кадры с референсами. */
+  referencesExcludeFrames?: true
+  /** Видео-модель умеет делать звуковую дорожку. */
+  audio?: true
   /** Модель работает только с готовым видео или аудио на входе (апскейл, аватары) — по одному описанию ролик не снимет. */
   needsSource?: true
 }
@@ -103,6 +116,12 @@ function mediaTraits(raw: Bag, architecture: Bag, makes: readonly Output[]): Med
     const units = Array.isArray(raw['image_pricing']) ? (raw['image_pricing'] as unknown[]).map(entry => bag(entry)['unit']) : []
     const unit = (['image', 'megapixel', 'token'] as const).find(candidate => units.includes(candidate))
     if (unit !== undefined) traits.billedBy = unit
+    for (const [field, key] of [['supported_image_sizes', 'sizes'], ['supported_qualities', 'qualities'], ['supported_backgrounds', 'backgrounds'], ['supported_output_formats', 'formats']] as const) {
+      const values = strings(raw[field])
+      if (values.length > 0) traits[key] = values
+    }
+    if (raw['supported_image_references'] === false) traits.references = 0
+    else if (raw['supported_image_references'] === true) traits.references = Math.floor(amount(raw['max_image_references']) ?? 1)
   }
   if (makes.includes('video')) {
     const resolutions = strings(raw['supported_resolutions'])
@@ -112,6 +131,10 @@ function mediaTraits(raw: Bag, architecture: Bag, makes: readonly Output[]): Med
     // Модель без длительностей и без опорных кадров снимает не «с нуля»: ей нужно исходное видео или аудио.
     const durations = Array.isArray(raw['supported_durations']) ? raw['supported_durations'] as unknown[] : []
     const sources = strings(architecture['input_modalities'])
+    if (raw['supports_reference_images'] === false) traits.references = 0
+    else if (raw['supports_reference_images'] === true) traits.references = Math.floor(amount(raw['max_image_references']) ?? 1)
+    if (raw['frames_exclusive_with_references'] === true && (traits.references ?? 0) > 0) traits.referencesExcludeFrames = true
+    if (raw['generate_audio'] === true) traits.audio = true
     if (durations.length === 0 && frames.length === 0 && (sources.includes('video') || sources.includes('audio'))) traits.needsSource = true
   }
   return traits
@@ -196,7 +219,7 @@ export async function downloadModelList(apiBase: string, signal?: AbortSignal): 
 }
 
 interface Snapshot {
-  format: 4
+  format: 5
   source: string
   savedAt: number
   cards: ModelCard[]
@@ -204,10 +227,10 @@ interface Snapshot {
 
 function acceptSnapshot(raw: unknown): Snapshot | undefined {
   const value = bag(raw)
-  if (value['format'] !== 4 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
+  if (value['format'] !== 5 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
   if (!Array.isArray(value['cards'])) return undefined
   const cards = (value['cards'] as unknown[]).filter((card): card is ModelCard => isModelSlug(bag(card)['slug']) && Array.isArray(bag(card)['makes']))
-  return { format: 4, source: value['source'], savedAt: value['savedAt'], cards }
+  return { format: 5, source: value['source'], savedAt: value['savedAt'], cards }
 }
 
 export interface ModelCatalogOptions {
@@ -272,7 +295,7 @@ export class ModelCatalog {
       const cards = await this.download(this.options.apiBase)
       this.lastError = undefined
       this.adopt(cards, this.clock())
-      await this.disk?.write({ format: 4, source: this.options.apiBase, savedAt: this.stamp, cards })
+      await this.disk?.write({ format: 5, source: this.options.apiBase, savedAt: this.stamp, cards })
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
     }

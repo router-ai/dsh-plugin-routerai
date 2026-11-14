@@ -36,7 +36,12 @@ export function registerLiveTool(ctx: Context, options: LiveToolOptions): void {
   }, options.label)
 }
 
-/** «(допустимо: a, b, c)» для описания параметра; пусто, если модель ограничений не сообщает. */
+/**
+ * Допустимые значения для описания параметра; пусто, если модель ограничений не сообщает.
+ * Строки даются в кавычках, как их нужно записать в аргументах: слабые модели иначе пишут 480p без кавычек
+ * и получают некорректный JSON.
+ */
 export function allowedHint(values: readonly (string | number)[] | undefined, unit = ''): string {
-  return values === undefined || values.length === 0 ? '' : ` Допустимо: ${values.join(', ')}${unit}.`
+  if (values === undefined || values.length === 0) return ''
+  return ` Допустимо: ${values.map(value => (typeof value === 'string' ? JSON.stringify(value) : String(value))).join(', ')}${unit}.`
 }
