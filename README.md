@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://routerai.ru"><img src="https://raw.githubusercontent.com/router-ai/dsh-plugin-routerai/main/icon.svg" alt="RouterAI" width="96" height="96"></a>
+</p>
+
 <h1 align="center">RouterAI для DeepSeek Harness</h1>
 
 <p align="center">
@@ -48,14 +52,14 @@ dsh plugin --profile desktop add @router-ai/dsh-plugin-routerai
 <details>
 <summary>Установка через список плагинов RouterAI — с обновлениями в один клик</summary>
 
-1. В разделе **Плагины** среди экспериментальных включите **Custom plugin indexes** — появится вкладка «Обзор».
-2. Во вкладке «Обзор» нажмите **Add index source** и вставьте адрес списка:
+1. В разделе **Плагины** среди экспериментальных включите **Custom plugin indexes** — появится вкладка «Откройте для себя».
+2. На вкладке «Откройте для себя» нажмите **Добавить источник индекса** и вставьте адрес списка:
 
    ```
    https://routerai.ru/dsh/index.json
    ```
 
-3. На карточке RouterAI нажмите **Установить**.
+3. На карточке RouterAI нажмите **Установить**, а в окне «Установлено» — **Включить сейчас**. Перезапуск не нужен.
 
 Новые версии плагина появляются в списке сами. Подробнее — на [routerai.ru/dsh](https://routerai.ru/dsh).
 
