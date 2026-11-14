@@ -10,9 +10,11 @@ others — behind a single key and bills in rubles. This plugin adds those model
 2. Tick the models you want in the catalog and press **Apply**.
 3. Pick a RouterAI model in the model picker.
 
+![The agent draws a logo through RouterAI](https://raw.githubusercontent.com/router-ai/dsh-plugin-routerai/main/docs/media/demo.gif)
+
 ## What you get
 
-- Price per million tokens and context size right in the model list.
+- A model catalog with prices in rubles per million tokens, search and ready-made sets.
 - Balance in the sidebar and the session cost under the composer.
 - Clear messages when the balance runs out or the key hits its spending limit.
 - Savings: session titles and context compaction run on an inexpensive utility model.

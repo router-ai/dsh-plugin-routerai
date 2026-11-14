@@ -1,6 +1,6 @@
 {
   "name": "@router-ai/dsh-plugin-routerai",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "RouterAI — провайдер моделей для DeepSeek Harness: сотни LLM по одному ключу с оплатой в рублях",
   "type": "module",
   "license": "MIT",
@@ -18,7 +18,8 @@
     "cordis.patch.yml",
     "icon.svg",
     "locale",
-    "docs",
+    "docs/DETAIL.md",
+    "docs/DETAIL.ru.md",
     "README.md",
     "CHANGELOG.md"
   ],

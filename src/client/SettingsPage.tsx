@@ -110,6 +110,11 @@ function Account({ t, remote, overview }: Shared & { overview: Overview }) {
   )
 }
 
+/** «Anthropic Claude Sonnet 5.5»; у моделей, чьё название уже начинается с производителя, он не повторяется. */
+function fullName(entry: CatalogEntry): string {
+  return entry.title.toLowerCase().startsWith(entry.maker.toLowerCase()) ? entry.title : `${entry.maker} ${entry.title}`
+}
+
 function modelFacts(entry: CatalogEntry): string {
   return [entry.slug, pricePair(entry.price), windowLabel(entry.window)].filter(part => part !== '').join(' · ')
 }
@@ -161,7 +166,7 @@ function Picker({ t, remote, overview, catalog }: Shared & { overview: Overview;
                 <div className="rai-row" key={slug}>
                   <span className="rai-order">{position + 1}</span>
                   <div style={{ minWidth: 0 }}>
-                    <div className="rai-clip">{entry === undefined ? slug : `${entry.maker} ${entry.title}`}</div>
+                    <div className="rai-clip">{entry === undefined ? slug : fullName(entry)}</div>
                     <div className="rai-faint rai-clip">{entry === undefined ? (catalog === null ? slug : `${slug} · ${t('pickerUnknown')}`) : modelFacts(entry)}</div>
                   </div>
                   <div className="rai-tools">
@@ -212,7 +217,7 @@ function Picker({ t, remote, overview, catalog }: Shared & { overview: Overview;
           <label className="rai-row" key={entry.slug}>
             <input type="checkbox" checked={draft.includes(entry.slug)} onChange={() => { toggle(entry.slug) }} />
             <div style={{ minWidth: 0 }}>
-              <div className="rai-clip">{entry.maker} {entry.title}</div>
+              <div className="rai-clip">{fullName(entry)}</div>
               <div className="rai-faint rai-clip">{modelFacts(entry)}</div>
             </div>
             <div className="rai-line">
@@ -260,7 +265,7 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <select className="rai-choice" value={current ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ utilityModel: event.target.value === '' ? null : event.target.value })) }}>
           <option value="">{t('utilityOff')}</option>
           {current !== null && !cheapestFirst.some(entry => entry.slug === current) ? <option value={current}>{current}</option> : null}
-          {cheapestFirst.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title} · {pricePair(entry.price)}</option>)}
+          {cheapestFirst.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)} · {pricePair(entry.price)}</option>)}
         </select>
         <span className="rai-note">{t('utilityHint')}</span>
       </label>
@@ -269,7 +274,7 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <select className="rai-choice" data-routerai="image-model" value={overview.imageModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ imageModel: event.target.value === '' ? null : event.target.value })) }}>
           <option value="">{t('imageOff')}</option>
           {known(painters, overview.imageModel) ? null : <option value={overview.imageModel ?? ''}>{overview.imageModel}</option>}
-          {painters.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title}{entry.perImage === undefined ? '' : ` · ${t('perImage', { price: rub(entry.perImage) })}`}</option>)}
+          {painters.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.perImage === undefined ? '' : ` · ${t('perImage', { price: rub(entry.perImage) })}`}</option>)}
         </select>
         <span className="rai-note">{t('imageHint')}</span>
       </label>
@@ -278,7 +283,7 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <select className="rai-choice" data-routerai="video-model" value={overview.videoModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ videoModel: event.target.value === '' ? null : event.target.value })) }}>
           <option value="">{t('videoOff')}</option>
           {known(directors, overview.videoModel) ? null : <option value={overview.videoModel ?? ''}>{overview.videoModel}</option>}
-          {directors.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title}{entry.perSecond === undefined ? '' : ` · ${t('perSecond', { price: rub(entry.perSecond) })}`}</option>)}
+          {directors.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.perSecond === undefined ? '' : ` · ${t('perSecond', { price: rub(entry.perSecond) })}`}</option>)}
         </select>
         <span className="rai-note">{t('videoHint')}</span>
       </label>
@@ -293,7 +298,7 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <span>{t('speechLabel')}</span>
         <select className="rai-choice" data-routerai="speech-model" value={overview.speechModel} onChange={(event) => { action.run(() => remote.savePreferences({ speechModel: event.target.value })) }}>
           {known(listeners, overview.speechModel) ? null : <option value={overview.speechModel}>{overview.speechModel}</option>}
-          {listeners.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title}{entry.perSecond === undefined ? '' : ` · ${t('perMinute', { price: rub(entry.perSecond * 60) })}`}</option>)}
+          {listeners.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.perSecond === undefined ? '' : ` · ${t('perMinute', { price: rub(entry.perSecond * 60) })}`}</option>)}
         </select>
         <span className="rai-note">{t('speechHint')}</span>
       </label>
