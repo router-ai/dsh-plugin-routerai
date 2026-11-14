@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isChatModel, isImageModel, isSpeechModel, isVideoModel, ModelCatalog } from '../src/catalog.ts'
+import { isChatModel, isImageModel, isSpeechModel, isVideoModel, ModelCatalog, readModelCard } from '../src/catalog.ts'
 import { pricePair, rub, windowLabel } from '../src/money.ts'
 import { sampleCards, scratchDir } from './helpers.ts'
 
@@ -30,7 +30,15 @@ describe('разбор каталога RouterAI', () => {
     expect(card('google/gemini-3.1-flash-image').makes).toEqual(['text', 'image'])
     expect(card('google/gemini-3.1-flash-image').perImage).toBeUndefined()
 
+    expect(painter.media).toMatchObject({ billedBy: 'image', maxCount: expect.any(Number) })
+    expect(painter.media?.aspectRatios).toContain('16:9')
+    // Модель с оплатой по токенам: цену за картинку заранее не назвать.
+    expect(card('google/gemini-3.1-flash-image').media?.billedBy).toBe('token')
+    expect(card('anthropic/claude-sonnet-5.5').media).toBeUndefined()
+
     const director = card('tbc/mischief-1')
+    expect(director.media).toMatchObject({ aspectRatios: ['16:9'], resolutions: ['480p', '720p'], frames: ['first_frame'] })
+    expect(director.media?.needsSource).toBeUndefined()
     expect(isVideoModel(director)).toBe(true)
     expect(isChatModel(director)).toBe(false)
     expect(director.perSecond).toBeCloseTo(0.53937195, 6)
@@ -52,6 +60,13 @@ describe('разбор каталога RouterAI', () => {
     expect(price?.output).toBeCloseTo(1078.7439, 4)
     expect(price?.cachedInput).toBeCloseTo(10.787439, 4)
     expect(price?.cacheWrite).toBeCloseTo(269.685975, 4)
+  })
+
+  it('отмечает видео-модели, которым нужно готовое видео на входе', () => {
+    const upscaler = readModelCard({ id: 'demo/upscale', name: 'Demo: Upscale', architecture: { input_modalities: ['text', 'video'], output_modalities: ['video'] } })
+    expect(upscaler?.media).toEqual({ needsSource: true })
+    const ordinary = readModelCard({ id: 'demo/film', name: 'Demo: Film', architecture: { input_modalities: ['text', 'image', 'video'], output_modalities: ['video'] }, supported_durations: [5], supported_frame_images: ['first_frame'] })
+    expect(ordinary?.media?.needsSource).toBeUndefined()
   })
 
   it('не выдумывает цену за токены для моделей с оплатой за запрос', () => {

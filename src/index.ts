@@ -244,10 +244,18 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
+  // Инструменты рисования и видео пересобирают своё описание, когда меняется выбранная модель или каталог.
+  const watchMedia = (listener: () => void) => {
+    const stops = [catalog.watch(listener), preferences.watch(listener)]
+    return () => { for (const stop of stops) stop() }
+  }
+
   ctx.inject(['tools'], (scope) => {
     registerDrawTool(scope, {
       apiBase, readKey,
       imageModel: () => preferences.current.imageModel,
+      findModel: slug => catalog.find(slug),
+      watch: watchMedia,
       attachments: () => optional.attachments,
       charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
     })
@@ -256,6 +264,7 @@ export function apply(ctx: Context, config: Config): void {
       videoModel: () => preferences.current.videoModel,
       videoBudget: () => preferences.current.videoBudget,
       findModel: slug => catalog.find(slug),
+      watch: watchMedia,
       charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
       // Переменная для стенда: мок отвечает мгновенно, ждать по 5 секунд между проверками незачем.
       ...process.env['ROUTERAI_VIDEO_POLL_MS'] === undefined ? {} : { pollMs: Number(process.env['ROUTERAI_VIDEO_POLL_MS']) },

@@ -74,7 +74,7 @@ export function DrawCard({ t, phase, toolName, block, loadImage, openFile }: Pro
     )
   }
 
-  const meta = (block.meta ?? {}) as { model?: string; cost?: number | null; files?: string[] }
+  const meta = (block.meta ?? {}) as { model?: string; cost?: number | null; files?: string[]; notes?: string[] }
   const shown = (block.content ?? []).flatMap(item => (item.type === 'image' && item.attachment !== undefined ? [item.attachment] : []))
   const facts = [meta.model, typeof meta.cost === 'number' ? t('drawnCost', { cost: rub(meta.cost) }) : undefined].filter(Boolean).join(' · ')
   return (
@@ -85,6 +85,7 @@ export function DrawCard({ t, phase, toolName, block, loadImage, openFile }: Pro
         {facts === '' ? null : <span className="rai-faint">{facts}</span>}
       </div>
       {prompt === '' ? null : <span className="rai-note">{prompt}</span>}
+      {(meta.notes ?? []).map(note => <span key={note} className="rai-caution">{note}</span>)}
       {(meta.files ?? []).length === 0 ? null : (
         <div className="rai-line">
           {(meta.files ?? []).map(path => <Button key={path} variant="outline" size="sm" onClick={() => { openFile(path) }}>{t('openFile', { name: path.split(/[\\/]/).pop() ?? path })}</Button>)}

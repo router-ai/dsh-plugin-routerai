@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { fileStem } from '../src/draw.ts'
-import { fitDuration, readFrame } from '../src/film.ts'
+import { readFrame } from '../src/film.ts'
+import { fitAspectRatio, fitCount, fitDuration, fitResolution, ratioValue, resolutionHeight } from '../src/fit.ts'
 import { drawPictures, makeFilm, MediaError, recognizeSpeech, sniffPictureType, wavSeconds } from '../src/media.ts'
 import { scratchDir, sendJson, stubServer } from './helpers.ts'
 
@@ -49,8 +50,17 @@ describe('картинки', () => {
     const flat = await stubServer((_exchange, response) => sendJson(response, 401, { error: '401 Unauthorized' }))
     await expect(drawPictures(`${flat.origin}/api/v1`, KEY, { model: 'm/x', prompt: 'p' }, signal)).rejects.toThrow('401 Unauthorized')
 
-    const vector = await stubServer((_exchange, response) => sendJson(response, 200, { data: [{ b64_json: Buffer.from('<svg/>').toString('base64') }] }))
-    await expect(drawPictures(`${vector.origin}/api/v1`, KEY, { model: 'm/x', prompt: 'p' }, signal)).rejects.toBeInstanceOf(MediaError)
+    const junk = await stubServer((_exchange, response) => sendJson(response, 200, { data: [{ b64_json: Buffer.from('это не картинка').toString('base64') }] }))
+    await expect(drawPictures(`${junk.origin}/api/v1`, KEY, { model: 'm/x', prompt: 'p' }, signal)).rejects.toBeInstanceOf(MediaError)
+  })
+
+  it('векторную картинку принимает как SVG', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
+    const vector = await stubServer((_exchange, response) => sendJson(response, 200, { data: [{ b64_json: Buffer.from(svg).toString('base64') }] }))
+    const result = await drawPictures(`${vector.origin}/api/v1`, KEY, { model: 'm/x', prompt: 'p' }, new AbortController().signal)
+    expect(result.pictures).toHaveLength(1)
+    expect(result.pictures[0]!.type).toBe('image/svg+xml')
+    expect(Buffer.from(result.pictures[0]!.bytes).toString()).toBe(svg)
   })
 
   it('определяет тип картинки по содержимому', () => {
@@ -58,7 +68,9 @@ describe('картинки', () => {
     expect(sniffPictureType(Uint8Array.of(0xff, 0xd8, 0xff, 0xe0))).toBe('image/jpeg')
     expect(sniffPictureType(new Uint8Array(Buffer.from('GIF89a')))).toBe('image/gif')
     expect(sniffPictureType(new Uint8Array(Buffer.from('RIFF\0\0\0\0WEBPVP8 ')))).toBe('image/webp')
-    expect(sniffPictureType(new Uint8Array(Buffer.from('<svg xmlns')))).toBeUndefined()
+    expect(sniffPictureType(new Uint8Array(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')))).toBe('image/svg+xml')
+    expect(sniffPictureType(new Uint8Array(Buffer.from('<?xml version="1.0"?>\n<svg/>')))).toBe('image/svg+xml')
+    expect(sniffPictureType(new Uint8Array(Buffer.from('просто текст')))).toBeUndefined()
   })
 
   it('даёт файлу понятное имя', () => {
@@ -140,12 +152,13 @@ describe('видео', () => {
     await expect(pending).rejects.toThrow('пользователь остановил')
   })
 
-  it('подбирает ближайшую допустимую длительность', () => {
-    expect(fitDuration(4, [3, 5, 10])).toBe(3)
-    expect(fitDuration(8, [3, 5, 10])).toBe(10)
-    expect(fitDuration(undefined, [5, 10])).toBe(5)
-    expect(fitDuration(7, undefined)).toBe(7)
-    expect(fitDuration(undefined, undefined)).toBeUndefined()
+  it('подбирает ближайшую допустимую длительность и сообщает о замене', () => {
+    expect(fitDuration(4, [3, 5, 10])).toMatchObject({ value: 3, note: expect.stringContaining('взято ближайшее, 3 с') })
+    expect(fitDuration(8, [3, 5, 10]).value).toBe(10)
+    expect(fitDuration(5, [3, 5, 10])).toEqual({ value: 5 })
+    expect(fitDuration(undefined, [5, 10])).toEqual({ value: 5 })
+    expect(fitDuration(7, undefined)).toEqual({ value: 7 })
+    expect(fitDuration(undefined, undefined).value).toBeUndefined()
   })
 
   it('первый кадр берёт только из рабочего каталога и только картинку', async () => {
@@ -163,5 +176,54 @@ describe('видео', () => {
     await expect(readFrame(workspace, 'link.png')).rejects.toThrow(/внутри рабочего каталога/)
     await expect(readFrame(workspace, 'notes.txt')).rejects.toThrow(/должен быть картинкой/)
     await expect(readFrame(workspace, 'нет-такого.png')).rejects.toThrow(/не найден/)
+  })
+})
+
+describe('подгонка запроса под модель', () => {
+  it('оставляет поддержанное соотношение сторон и подбирает ближайшее к неподдержанному', () => {
+    const allowed = ['1:1', '16:9', '9:16', 'auto']
+    expect(fitAspectRatio('16:9', allowed)).toEqual({ value: '16:9' })
+    expect(fitAspectRatio('AUTO', allowed)).toEqual({ value: 'auto' })
+    expect(fitAspectRatio('2:3', allowed)).toMatchObject({ value: '9:16', note: expect.stringContaining('взято ближайшее, 9:16') })
+    expect(fitAspectRatio('21:9', allowed).value).toBe('16:9')
+    expect(fitAspectRatio('4:5', allowed).value).toBe('1:1')
+  })
+
+  it('не вмешивается, когда пожелания нет или модель ограничений не сообщает', () => {
+    expect(fitAspectRatio(undefined, ['1:1'])).toEqual({ value: undefined })
+    expect(fitAspectRatio('', ['1:1'])).toEqual({ value: undefined })
+    expect(fitAspectRatio('7:3', undefined)).toEqual({ value: '7:3' })
+    expect(fitAspectRatio('7:3', [])).toEqual({ value: '7:3' })
+  })
+
+  it('непонятное пожелание не отправляет и объясняет почему', () => {
+    const fitted = fitAspectRatio('широкий', ['1:1', '16:9'])
+    expect(fitted.value).toBeUndefined()
+    expect(fitted.note).toContain('допустимо: 1:1, 16:9')
+  })
+
+  it('подбирает разрешение видео', () => {
+    expect(fitResolution('1080p', ['480p', '720p'])).toMatchObject({ value: '720p', note: expect.stringContaining('720p') })
+    expect(fitResolution('720p', ['480p', '720p'])).toEqual({ value: '720p' })
+    expect(fitResolution('4k', ['720p', '1080p', '4K'])).toEqual({ value: '4K' })
+    expect(fitResolution('360p', ['720p', '1080p']).value).toBe('720p')
+    expect(fitResolution('2K', ['720p', '1080p', '4K']).value).toBe('1080p')
+  })
+
+  it('ограничивает число картинок пределом модели', () => {
+    expect(fitCount(3, 1)).toMatchObject({ value: 1, note: expect.stringContaining('не больше 1 картинки') })
+    expect(fitCount(3, 6)).toEqual({ value: 3 })
+    expect(fitCount(undefined, 4)).toEqual({ value: 1 })
+    expect(fitCount(0, 4)).toEqual({ value: 1 })
+    expect(fitCount(9, 4).value).toBe(4)
+  })
+
+  it('понимает обозначения соотношений и разрешений', () => {
+    expect(ratioValue('16:9')).toBeCloseTo(1.7778, 3)
+    expect(ratioValue('9:19.5')).toBeCloseTo(0.4615, 3)
+    expect(ratioValue('auto')).toBeUndefined()
+    expect(resolutionHeight('720p')).toBe(720)
+    expect(resolutionHeight('4K')).toBe(2160)
+    expect(resolutionHeight('как получится')).toBeUndefined()
   })
 })

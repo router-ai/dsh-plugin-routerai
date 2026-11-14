@@ -110,6 +110,14 @@ function Account({ t, remote, overview }: Shared & { overview: Overview }) {
   )
 }
 
+/** Подпись цены модели для картинок: за картинку — сумма, иначе — способ оплаты, потому что сумму заранее не назвать. */
+function imagePrice(t: Translate, entry: CatalogEntry): string {
+  if (entry.perImage !== undefined) return ` · ${t('perImage', { price: rub(entry.perImage) })}`
+  if (entry.media?.billedBy === 'token') return ` · ${t('billedByTokens')}`
+  if (entry.media?.billedBy === 'megapixel') return ` · ${t('billedByMegapixels')}`
+  return ''
+}
+
 /** «Anthropic Claude Sonnet 5.5»; у моделей, чьё название уже начинается с производителя, он не повторяется. */
 function fullName(entry: CatalogEntry): string {
   return entry.title.toLowerCase().startsWith(entry.maker.toLowerCase()) ? entry.title : `${entry.maker} ${entry.title}`
@@ -244,7 +252,8 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
     .sort((a, b) => (a.perImage ?? Infinity) - (b.perImage ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
   const listeners = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('transcription'))
     .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
-  const directors = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('video'))
+  // Модели, которым нужно готовое видео или аудио (апскейл, аватары), ролик по описанию не снимут — их не предлагаем.
+  const directors = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('video') && entry.media?.needsSource !== true)
     .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
   const [budget, setBudget] = useState(String(overview.videoBudget))
   const commitBudget = () => {
@@ -274,7 +283,7 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <select className="rai-choice" data-routerai="image-model" value={overview.imageModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ imageModel: event.target.value === '' ? null : event.target.value })) }}>
           <option value="">{t('imageOff')}</option>
           {known(painters, overview.imageModel) ? null : <option value={overview.imageModel ?? ''}>{overview.imageModel}</option>}
-          {painters.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.perImage === undefined ? '' : ` · ${t('perImage', { price: rub(entry.perImage) })}`}</option>)}
+          {painters.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{imagePrice(t, entry)}</option>)}
         </select>
         <span className="rai-note">{t('imageHint')}</span>
       </label>

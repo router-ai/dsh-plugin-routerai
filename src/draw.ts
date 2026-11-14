@@ -3,29 +3,38 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-working-directory'
+import type { ModelCard } from './catalog.ts'
+import { fitAspectRatio, fitCount } from './fit.ts'
 import { DRAW_TOOL, MEDIA_FOLDER } from './links.ts'
 import { drawPictures } from './media.ts'
 import type { Picture } from './media.ts'
 import { rub } from './money.ts'
+import { allowedHint, registerLiveTool } from './toolkit.ts'
 
 export { DRAW_TOOL, MEDIA_FOLDER }
-const MOST_PICTURES = 4
+/** Предел числа картинок за вызов, если модель своего не сообщает. */
+const DEFAULT_MOST = 4
 
 export interface DrawDeps {
   apiBase: string
   readKey(): Promise<string | undefined>
   /** Модель для картинок из настроек; null — рисование выключено. */
   imageModel(): string | null
+  findModel(slug: string): ModelCard | undefined
   attachments(): Context['attachments'] | undefined
   /** Картинка оплачена: учесть её в стоимости сессии. */
   charged(sessionId: string, model: string, rub: number): void
+  /** Подписка на смену настроек и каталога. */
+  watch(listener: () => void): () => void
 }
 
-const EXTENSIONS: Record<Picture['type'], string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
+const EXTENSIONS: Record<Picture['type'], string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' }
+const SHOWN_IN_CHAT: readonly string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] satisfies ImageMediaType[]
 
 /** Имя файла из пожелания модели или из описания картинки: латиница, цифры, дефисы. */
 export function fileStem(wish: string | undefined, prompt: string, now = new Date()): string {
@@ -42,8 +51,10 @@ interface Drawn {
   cost: number | null
   /** Пути сохранённых файлов. */
   files: string[]
-  /** Те же картинки как вложения чата. */
+  /** Те же картинки как вложения чата (кроме векторных — их чат не показывает). */
   shown: ImageAttachmentRef[]
+  /** Что пришлось изменить в запросе под возможности модели. */
+  notes: string[]
 }
 
 function summary(drawn: Drawn): string {
@@ -51,20 +62,33 @@ function summary(drawn: Drawn): string {
   const parts = [`Готово: ${count === 1 ? 'картинка' : `картинок: ${count}`}, модель ${drawn.model}`]
   if (drawn.cost !== null) parts.push(`стоимость ${rub(drawn.cost)}`)
   if (drawn.files.length > 0) parts.push(`файлы: ${drawn.files.join(', ')}`)
-  return `${parts.join('; ')}.`
+  return [`${parts.join('; ')}.`, ...drawn.notes.map(note => `Обратите внимание: ${note}.`)].join('\n')
 }
 
 const pictures = (shown: readonly ImageAttachmentRef[]): ContentBlock[] => shown.map(attachment => ({ type: 'image', attachment }))
 
-export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
-  const tool = defineTool({
+/** Описание инструмента под выбранную модель: агент видит, что она умеет, и не просит невозможного. */
+function describeTool(card: ModelCard | undefined): { tool: string; aspect: string; count: string } {
+  const most = card?.media?.maxCount ?? DEFAULT_MOST
+  return {
+    tool: 'Нарисовать картинку по текстовому описанию (иллюстрация, логотип, макет, схема). '
+      + `Картинка появится в чате и сохранится в папку ${MEDIA_FOLDER} рабочего каталога. Вызов платный — используй, когда пользователь просит изображение.`
+      + (card === undefined ? '' : ` Сейчас выбрана модель ${card.slug}.`),
+    aspect: `Соотношение сторон. По умолчанию выбирает модель.${allowedHint(card?.media?.aspectRatios)}`,
+    count: most === 1 ? 'Модель рисует одну картинку за вызов; для нескольких вариантов вызови инструмент несколько раз.' : `Сколько вариантов нарисовать, от 1 до ${most}. По умолчанию 1.`,
+  }
+}
+
+function buildDrawTool(ctx: Context, deps: DrawDeps): ToolDefinition {
+  const selected = deps.imageModel()
+  const text = describeTool(selected === null ? undefined : deps.findModel(selected))
+  return defineTool({
     name: DRAW_TOOL,
-    description: 'Нарисовать картинку по текстовому описанию (иллюстрация, логотип, макет, схема). '
-      + `Картинка появится в чате и сохранится в папку ${MEDIA_FOLDER} рабочего каталога. Вызов платный — используй, когда пользователь просит изображение.`,
+    description: text.tool,
     parameters: {
       prompt: { type: 'string', required: true, description: 'Подробное описание картинки: что изображено, стиль, цвета, композиция. Надписи на картинке указывай дословно.' },
-      aspect_ratio: { type: 'string', description: 'Соотношение сторон, например 1:1, 16:9, 9:16, 4:3. По умолчанию выбирает модель.' },
-      count: { type: 'integer', description: `Сколько вариантов нарисовать, от 1 до ${MOST_PICTURES}. По умолчанию 1.` },
+      aspect_ratio: { type: 'string', description: text.aspect },
+      count: { type: 'integer', description: text.count },
       file_name: { type: 'string', description: 'Имя файла без расширения, латиницей. По умолчанию составляется из описания.' },
     },
     output: {
@@ -76,6 +100,7 @@ export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
           cost: { oneOf: [{ type: 'number' }, { type: 'null' }], required: true },
           files: { type: 'array', items: { type: 'string' }, required: true },
           shown: { type: 'array', items: { type: 'json' }, required: true },
+          notes: { type: 'array', items: { type: 'string' }, required: true },
         },
       },
       // Модель получает сводку и сами картинки: зрячая модель сможет оценить результат.
@@ -86,7 +111,7 @@ export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
       // Сведения для карточки вызова в интерфейсе (см. client/DrawCard.tsx).
       presentationMeta: (_args, value) => {
         const drawn = value as unknown as Drawn
-        return { model: drawn.model, cost: drawn.cost, files: drawn.files }
+        return { model: drawn.model, cost: drawn.cost, files: drawn.files, notes: drawn.notes }
       },
     },
     timeoutMs: 300_000,
@@ -99,10 +124,15 @@ export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
       const key = await deps.readKey()
       if (key === undefined) throw new Error('Нет ключа RouterAI. Войдите: Настройки → RouterAI или команда /routerai login.')
 
-      const count = Math.min(MOST_PICTURES, Math.max(1, args.count ?? 1))
+      // Запрос подгоняется под возможности модели из каталога; о заменах агент узнает из результата.
+      const traits = deps.findModel(model)?.media
+      const count = fitCount(args.count, traits?.maxCount ?? DEFAULT_MOST)
+      const aspect = fitAspectRatio(args.aspect_ratio, traits?.aspectRatios)
+      const notes = [count.note, aspect.note].filter((note): note is string => note !== undefined)
+
       const result = await drawPictures(deps.apiBase, key, {
-        model, prompt: args.prompt, count,
-        ...args.aspect_ratio === undefined ? {} : { aspectRatio: args.aspect_ratio },
+        model, prompt: args.prompt, count: count.value ?? 1,
+        ...aspect.value === undefined ? {} : { aspectRatio: aspect.value },
       }, run.signal)
 
       const stem = fileStem(args.file_name, args.prompt)
@@ -124,16 +154,31 @@ export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
       const attachments = deps.attachments()
       if (attachments !== undefined) {
         for (const [index, picture] of result.pictures.entries()) {
-          shown.push(await attachments.saveImage({ data: picture.bytes, mediaType: picture.type, name: names[index]! }))
+          if (!SHOWN_IN_CHAT.includes(picture.type)) continue
+          shown.push(await attachments.saveImage({ data: picture.bytes, mediaType: picture.type as ImageMediaType, name: names[index]! }))
         }
+      }
+      if (result.pictures.some(picture => picture.type === 'image/svg+xml')) {
+        notes.push(files.length > 0 ? 'векторная картинка (SVG) сохранена в файл; в чате она не отображается' : 'векторную картинку (SVG) негде сохранить: у сессии нет рабочего каталога')
       }
 
       if (result.cost !== undefined && run.agent !== undefined) deps.charged(String(run.agent.id), model, result.cost)
-      const drawn: Drawn = { model, cost: result.cost ?? null, files, shown }
+      const drawn: Drawn = { model, cost: result.cost ?? null, files, shown, notes }
       return drawn as never
     },
   })
+}
 
-  // Инструмент виден агенту, только пока рисование включено в настройках.
-  ctx.effect(() => ctx.tools.register(tool, { when: () => deps.imageModel() !== null }), 'routerai: draw tool')
+export function registerDrawTool(ctx: Context, deps: DrawDeps): void {
+  registerLiveTool(ctx, {
+    label: 'routerai: draw tool',
+    build: () => buildDrawTool(ctx, deps),
+    // Инструмент виден агенту, только пока рисование включено в настройках.
+    enabled: () => deps.imageModel() !== null,
+    signature: () => {
+      const model = deps.imageModel()
+      return JSON.stringify([model, model === null ? null : deps.findModel(model)?.media ?? null])
+    },
+    watch: deps.watch,
+  })
 }

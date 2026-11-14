@@ -42,7 +42,8 @@ function cost(payload: Record<string, unknown>): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-export type PictureType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+/** Растровые форматы harness показывает в чате; SVG — только сохраняется в файл. */
+export type PictureType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' | 'image/svg+xml'
 
 export interface Picture {
   bytes: Uint8Array
@@ -56,6 +57,9 @@ export function sniffPictureType(bytes: Uint8Array): PictureType | undefined {
   if (starts(0xff, 0xd8, 0xff)) return 'image/jpeg'
   if (starts(0x47, 0x49, 0x46, 0x38)) return 'image/gif'
   if (starts(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp'
+  // Векторные модели отдают SVG — текст, который начинается с <svg или с XML-заголовка.
+  const head = Buffer.from(bytes.subarray(0, 600)).toString('utf8').replace(/^\uFEFF/, '').trimStart().toLowerCase()
+  if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) return 'image/svg+xml'
   return undefined
 }
 
@@ -78,11 +82,11 @@ export async function drawPictures(apiBase: string, apiKey: string, request: Dra
   for (const item of Array.isArray(payload['data']) ? payload['data'] as Record<string, unknown>[] : []) {
     if (typeof item?.['b64_json'] !== 'string') continue
     const bytes = new Uint8Array(Buffer.from(item['b64_json'], 'base64'))
-    // Векторные и прочие форматы harness в чате не показывает — берём только растровые.
+    // Формат определяем по содержимому: RouterAI указывает тип не для всех моделей.
     const type = sniffPictureType(bytes)
     if (type !== undefined) pictures.push({ bytes, type })
   }
-  if (pictures.length === 0) throw new MediaError('RouterAI не вернул ни одной картинки в поддерживаемом формате (PNG, JPEG, WebP, GIF)')
+  if (pictures.length === 0) throw new MediaError('RouterAI не вернул ни одной картинки в известном формате (PNG, JPEG, WebP, GIF, SVG)')
   const price = cost(payload)
   return price === undefined ? { pictures } : { pictures, cost: price }
 }
