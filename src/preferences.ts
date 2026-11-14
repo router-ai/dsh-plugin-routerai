@@ -12,11 +12,17 @@ export interface Preferences {
   utilityModel: string | null
   /** Ниже этого баланса (₽) интерфейс предупреждает, что деньги заканчиваются. */
   lowBalance: number
+  /** Модель, которой агент рисует картинки; null — рисование выключено. */
+  imageModel: string | null
+  /** Модель распознавания речи для голосового ввода. */
+  speechModel: string
 }
 
 export const DEFAULT_UTILITY_MODEL = 'deepseek/deepseek-v4.1-flash'
+export const DEFAULT_IMAGE_MODEL = 'bytedance-seed/seedream-5-5'
+export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
 
-const INITIAL: Preferences = { utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100 }
+const INITIAL: Preferences = { utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100, imageModel: DEFAULT_IMAGE_MODEL, speechModel: DEFAULT_SPEECH_MODEL }
 
 /** Привести список моделей к каноническому виду или объяснить, что с ним не так. */
 export function cleanModelList(value: unknown): string[] {
@@ -41,6 +47,8 @@ function fromDisk(raw: unknown): Preferences | undefined {
   }
   if (stored['utilityModel'] === null || isModelSlug(stored['utilityModel'])) result.utilityModel = stored['utilityModel']
   if (typeof stored['lowBalance'] === 'number' && stored['lowBalance'] >= 0) result.lowBalance = stored['lowBalance']
+  if (stored['imageModel'] === null || isModelSlug(stored['imageModel'])) result.imageModel = stored['imageModel']
+  if (isModelSlug(stored['speechModel'])) result.speechModel = stored['speechModel']
   return result
 }
 
@@ -87,6 +95,16 @@ export class PreferenceStore {
       const threshold = patch['lowBalance']
       if (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0) throw new Error('Порог баланса: ожидалось неотрицательное число')
       next.lowBalance = threshold
+    }
+    if ('imageModel' in patch) {
+      const model = patch['imageModel']
+      if (model !== null && !isModelSlug(model)) throw new Error('Модель для картинок: ожидался идентификатор vendor/model или null')
+      next.imageModel = model
+    }
+    if ('speechModel' in patch) {
+      const model = patch['speechModel']
+      if (!isModelSlug(model)) throw new Error('Модель распознавания речи: ожидался идентификатор vendor/model')
+      next.speechModel = model
     }
     await this.file.write(next)
     this.value = next

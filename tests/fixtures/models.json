@@ -400,6 +400,253 @@
     "completion": "request"
    },
    "supported_parameters": []
+  },
+  {
+   "id": "google/lyria-3-clip-preview",
+   "name": "Google: Lyria 3 Clip Preview",
+   "created": 1774907255,
+   "description": "…",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text+image->text+audio",
+    "tokenizer": "Other",
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text",
+     "audio"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.0,
+    "request": 4.3149756,
+    "completion": 0.0
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "request": "request",
+    "completion": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "max_tokens",
+    "response_format",
+    "seed",
+    "temperature",
+    "top_p"
+   ],
+   "default_parameters": {
+    "top_k": null,
+    "top_p": null,
+    "temperature": null,
+    "presence_penalty": null,
+    "frequency_penalty": null,
+    "repetition_penalty": null
+   }
+  },
+  {
+   "id": "google/gemini-3.1-flash-image",
+   "name": "Google: Nano Banana 2 (Gemini 3.1 Flash Image)",
+   "created": 1781754065,
+   "description": "…",
+   "context_length": 131072,
+   "architecture": {
+    "modality": "text+image->text+image",
+    "tokenizer": "Gemini",
+    "instruct_type": null,
+    "input_modalities": [
+     "image",
+     "text"
+    ],
+    "output_modalities": [
+     "image",
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": 5.3937195e-05,
+    "completion": 0.00032362317,
+    "web_search": 1.51024146,
+    "image_output": 0.0064724634
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "completion": "token",
+    "web_search": "request",
+    "image_output": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "seed",
+    "structured_outputs",
+    "temperature",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_aspect_ratios": [
+    "1:1",
+    "1:4",
+    "1:8",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:1",
+    "4:3",
+    "4:5",
+    "5:4",
+    "8:1",
+    "9:16",
+    "16:9",
+    "21:9"
+   ],
+   "max_image_references": 14,
+   "supported_image_sizes": [
+    "512",
+    "1K",
+    "2K",
+    "4K"
+   ],
+   "supported_qualities": null,
+   "supported_backgrounds": null,
+   "supported_output_formats": null,
+   "max_image_count": 1,
+   "supported_image_references": true,
+   "image_seed": false,
+   "supports_negative_prompt": false,
+   "image_pricing": [
+    {
+     "unit": "token",
+     "variant": null,
+     "price": 0.0064724634
+    }
+   ]
+  },
+  {
+   "id": "openai/whisper-large-v3-turbo",
+   "name": "OpenAI: Whisper Large V3 Turbo",
+   "created": 1777642266,
+   "description": "…",
+   "context_length": 0,
+   "architecture": {
+    "modality": "audio->transcription",
+    "tokenizer": null,
+    "instruct_type": null,
+    "input_modalities": [
+     "audio"
+    ],
+    "output_modalities": [
+     "transcription"
+    ]
+   },
+   "pricing": {
+    "prompt": 0.0003592217187,
+    "seconds": 0.0003592217187,
+    "completion": 0.0
+   },
+   "pricing_units": {
+    "prompt": "token",
+    "seconds": "second",
+    "completion": "token"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": null
+  },
+  {
+   "id": "bytedance-seed/seedream-5-5",
+   "name": "ByteDance Seed: Seedream 5.5",
+   "created": 1794517601,
+   "description": "…",
+   "context_length": null,
+   "architecture": {
+    "modality": "text+image->image",
+    "tokenizer": null,
+    "instruct_type": null,
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "image"
+    ]
+   },
+   "pricing": {
+    "image_output": 2.1574878
+   },
+   "pricing_units": {
+    "image_output": "image"
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "resolution",
+    "aspect_ratio",
+    "output_format",
+    "background",
+    "n",
+    "input_references",
+    "seed"
+   ],
+   "default_parameters": null,
+   "supported_aspect_ratios": [
+    "1:1",
+    "1:2",
+    "2:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "4:5",
+    "5:4",
+    "9:16",
+    "16:9",
+    "9:19.5",
+    "19.5:9",
+    "9:20",
+    "20:9",
+    "9:21",
+    "21:9",
+    "auto"
+   ],
+   "max_image_references": 10,
+   "supported_image_sizes": [
+    "1K",
+    "1.5K",
+    "2K"
+   ],
+   "supported_qualities": null,
+   "supported_backgrounds": [
+    "auto",
+    "transparent",
+    "opaque"
+   ],
+   "supported_output_formats": [
+    "png",
+    "jpeg"
+   ],
+   "max_image_count": 1,
+   "supported_image_references": true,
+   "image_seed": true,
+   "supports_negative_prompt": false,
+   "image_pricing": [
+    {
+     "unit": "image",
+     "variant": null,
+     "price": 2.1574878
+    },
+    {
+     "unit": "image",
+     "variant": "high_resolution",
+     "price": 3.77560365
+    }
+   ]
   }
  ]
 }

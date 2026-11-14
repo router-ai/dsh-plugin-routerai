@@ -21,6 +21,8 @@ export interface View {
 }
 
 const IDLE_REFRESH_MS = 45_000
+// Пока ключа нет, он может появиться в любой момент (команда /routerai, переменная окружения) — смотрим чаще.
+const DISCONNECTED_REFRESH_MS = 8_000
 const WAITING_REFRESH_MS = 1_200
 
 /** Состояние плагина в этой вкладке. Опрашивает сервер редко, а пока идёт вход — часто. */
@@ -56,7 +58,8 @@ export class Remote {
     }
     if (this.stopped) return
     const waiting = this.view.overview?.signIn.stage === 'waiting'
-    this.timer = setTimeout(() => { void this.pull(waiting) }, waiting ? WAITING_REFRESH_MS : IDLE_REFRESH_MS)
+    const pause = waiting ? WAITING_REFRESH_MS : this.view.overview?.connected === false ? DISCONNECTED_REFRESH_MS : IDLE_REFRESH_MS
+    this.timer = setTimeout(() => { void this.pull(waiting) }, pause)
   }
 
   private publish(view: View): void {
@@ -73,7 +76,7 @@ export class Remote {
   cancelSignIn = () => this.act('sign-in/cancel', {}, false)
   signOut = () => this.act('sign-out', {})
   saveKey = (key: string) => this.act('key', { key })
-  savePreferences = (patch: { models?: readonly string[]; utilityModel?: string | null; lowBalance?: number }) => this.act('preferences', patch, false)
+  savePreferences = (patch: { models?: readonly string[]; utilityModel?: string | null; lowBalance?: number; imageModel?: string | null; speechModel?: string }) => this.act('preferences', patch, false)
 
   /** Каталог запрашивается один раз за жизнь вкладки. */
   catalog(): Promise<CatalogEntry[]> {

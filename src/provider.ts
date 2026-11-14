@@ -61,7 +61,7 @@ export function describeModel(card: ModelCard, apiBase: string): Model<Api> {
 
 /** Модель из списка пользователя, пока каталог не загрузился: консервативные возможности. */
 export function describeUnknownModel(slug: string, apiBase: string): Model<Api> {
-  return describeModel({ slug, title: slug, maker: '', alias: slug.startsWith('~'), tools: true, reasoning: false, vision: false }, apiBase)
+  return describeModel({ slug, title: slug, maker: '', alias: slug.startsWith('~'), tools: true, reasoning: false, vision: false, makes: ['text'] }, apiBase)
 }
 
 /**

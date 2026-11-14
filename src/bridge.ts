@@ -25,6 +25,8 @@ export interface Overview {
   picker: { models: string[]; custom: boolean }
   utilityModel: string | null
   lowBalance: number
+  imageModel: string | null
+  speechModel: string
   problem: MoneyProblem | null
 }
 
@@ -79,6 +81,8 @@ export class Bridge {
       picker: { models: [...preferences.pickerModels()], custom: preferences.customized },
       utilityModel: preferences.current.utilityModel,
       lowBalance: preferences.current.lowBalance,
+      imageModel: preferences.current.imageModel,
+      speechModel: preferences.current.speechModel,
       problem: this.problem !== null && Date.now() - this.problem.at < PROBLEM_SHOWN_MS ? this.problem : null,
     }
   }

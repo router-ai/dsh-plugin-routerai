@@ -87,6 +87,16 @@ export class CostBook {
     this.close(sessionId, entry)
   }
 
+  /** Учесть готовую сумму — например, картинку: RouterAI сам сообщает её стоимость. */
+  addCharge(sessionId: string, model: string, rub: number): void {
+    const entry = this.open(sessionId)
+    entry.total += rub
+    entry.last = { model, rub }
+    const share = entry.perModel[model] ?? { calls: 0, rub: 0 }
+    entry.perModel[model] = { calls: share.calls + 1, rub: share.rub + rub }
+    this.close(sessionId, entry)
+  }
+
   private open(sessionId: string): SessionCost {
     const existing = this.sessions.get(sessionId)
     return existing === undefined ? blank() : structuredClone(existing)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ModelCatalog } from '../src/catalog.ts'
+import { isChatModel, isImageModel, isSpeechModel, ModelCatalog } from '../src/catalog.ts'
 import { pricePair, rub, windowLabel } from '../src/money.ts'
 import { sampleCards, scratchDir } from './helpers.ts'
 
@@ -10,10 +10,29 @@ const card = (slug: string) => {
 }
 
 describe('разбор каталога RouterAI', () => {
-  it('берёт только модели с текстовым выводом и отбрасывает повреждённые записи', () => {
+  it('берёт чат-модели, модели для картинок и речи; остальное и повреждённые записи отбрасывает', () => {
     const slugs = sampleCards().map(item => item.slug)
-    expect(slugs).toEqual(expect.arrayContaining(['anthropic/claude-sonnet-5.5', '~anthropic/claude-sonnet-latest', 'yandex/gpt-pro-5']))
-    for (const absent of ['google/gemini-embedding-2-preview', 'cohere/rerank-v3.5', 'recraft/recraft-v4-vector', 'broken entry']) expect(slugs).not.toContain(absent)
+    expect(slugs).toEqual(expect.arrayContaining(['anthropic/claude-sonnet-5.5', '~anthropic/claude-sonnet-latest', 'yandex/gpt-pro-5', 'bytedance-seed/seedream-5-5', 'openai/whisper-large-v3-turbo']))
+    for (const absent of ['google/gemini-embedding-2-preview', 'cohere/rerank-v3.5', 'broken entry']) expect(slugs).not.toContain(absent)
+  })
+
+  it('различает, что модель выдаёт, и знает цену картинки и секунды речи', () => {
+    expect(card('anthropic/claude-sonnet-5.5').makes).toEqual(['text'])
+    expect(isChatModel(card('anthropic/claude-sonnet-5.5'))).toBe(true)
+
+    const painter = card('bytedance-seed/seedream-5-5')
+    expect(painter.makes).toEqual(['image'])
+    expect(isImageModel(painter)).toBe(true)
+    expect(isChatModel(painter)).toBe(false)
+    expect(painter.perImage).toBeCloseTo(2.1574878, 5)
+
+    // Модель, которая и отвечает текстом, и рисует: годится и в пикер, и для картинок.
+    expect(card('google/gemini-3.1-flash-image').makes).toEqual(['text', 'image'])
+    expect(card('google/gemini-3.1-flash-image').perImage).toBeUndefined()
+
+    const listener = card('openai/whisper-large-v3-turbo')
+    expect(isSpeechModel(listener)).toBe(true)
+    expect(listener.perSecond).toBeCloseTo(0.0003592217187, 9)
   })
 
   it('разделяет производителя и название, отмечает возможности', () => {

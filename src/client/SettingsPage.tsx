@@ -127,15 +127,17 @@ function Picker({ t, remote, overview, catalog }: Shared & { overview: Overview;
   // Список на сервере сменился (сохранили здесь или в другой вкладке) — черновик начинается с него.
   useEffect(() => { setDraft(saved) }, [savedKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const bySlug = useMemo(() => new Map((catalog ?? []).map(entry => [entry.slug, entry])), [catalog])
-  const makers = useMemo(() => [...new Set((catalog ?? []).map(entry => entry.maker))].sort((a, b) => a.localeCompare(b)), [catalog])
+  // В пикер идут только чат-модели; модели для картинок и речи выбираются в «Дополнительно».
+  const chat = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('text')), [catalog])
+  const bySlug = useMemo(() => new Map(chat.map(entry => [entry.slug, entry])), [chat])
+  const makers = useMemo(() => [...new Set(chat.map(entry => entry.maker))].sort((a, b) => a.localeCompare(b)), [chat])
   const matches = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    return (catalog ?? []).filter(entry =>
+    return chat.filter(entry =>
       (maker === '' || entry.maker === maker)
       && (!toolsOnly || entry.tools)
       && (needle === '' || `${entry.slug} ${entry.maker} ${entry.title}`.toLowerCase().includes(needle)))
-  }, [catalog, search, maker, toolsOnly])
+  }, [chat, search, maker, toolsOnly])
 
   const changed = draft.join('|') !== savedKey
   const edit = (next: string[]) => { setJustApplied(false); setDraft(next) }
@@ -230,9 +232,14 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
   const [threshold, setThreshold] = useState(String(overview.lowBalance))
   const action = useAction()
   const cheapestFirst = useMemo(() => (catalog ?? [])
-    .filter(entry => entry.tools && entry.price !== undefined && !entry.alias)
+    .filter(entry => entry.makes.includes('text') && entry.tools && entry.price !== undefined && !entry.alias)
     .sort((a, b) => (a.price?.input ?? 0) - (b.price?.input ?? 0)), [catalog])
   const current = overview.utilityModel
+  const painters = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('image'))
+    .sort((a, b) => (a.perImage ?? Infinity) - (b.perImage ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const listeners = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('transcription'))
+    .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const known = (list: CatalogEntry[], slug: string | null) => slug === null || list.some(entry => entry.slug === slug)
   const commitThreshold = () => {
     const value = Number(threshold.replace(',', '.'))
     if (Number.isFinite(value) && value >= 0) action.run(() => remote.savePreferences({ lowBalance: value }))
@@ -248,6 +255,23 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
           {cheapestFirst.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title} · {pricePair(entry.price)}</option>)}
         </select>
         <span className="rai-note">{t('utilityHint')}</span>
+      </label>
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('imageLabel')}</span>
+        <select className="rai-choice" data-routerai="image-model" value={overview.imageModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ imageModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('imageOff')}</option>
+          {known(painters, overview.imageModel) ? null : <option value={overview.imageModel ?? ''}>{overview.imageModel}</option>}
+          {painters.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title}{entry.perImage === undefined ? '' : ` · ${t('perImage', { price: rub(entry.perImage) })}`}</option>)}
+        </select>
+        <span className="rai-note">{t('imageHint')}</span>
+      </label>
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('speechLabel')}</span>
+        <select className="rai-choice" data-routerai="speech-model" value={overview.speechModel} onChange={(event) => { action.run(() => remote.savePreferences({ speechModel: event.target.value })) }}>
+          {known(listeners, overview.speechModel) ? null : <option value={overview.speechModel}>{overview.speechModel}</option>}
+          {listeners.map(entry => <option key={entry.slug} value={entry.slug}>{entry.maker} {entry.title}{entry.perSecond === undefined ? '' : ` · ${t('perMinute', { price: rub(entry.perSecond * 60) })}`}</option>)}
+        </select>
+        <span className="rai-note">{t('speechHint')}</span>
       </label>
       <label className="rai-line">
         <span className="rai-fill">{t('lowBalanceLabel')}</span>

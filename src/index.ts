@@ -3,7 +3,8 @@
  *
  * Плагин регистрирует маршрут `routerai`: запросы уходят в OpenAI-совместимый API RouterAI
  * через штатный адаптер pi-ai. Сверх этого плагин следит за каталогом моделей и ценами,
- * помогает получить ключ через браузер, показывает баланс и считает стоимость сессий.
+ * помогает получить ключ через браузер, показывает баланс и считает стоимость сессий,
+ * даёт агенту инструмент для рисования картинок и распознаёт речь для голосового ввода.
  *
  * Настройка из файла (обычно всё делается в Настройках → RouterAI):
  *
@@ -22,6 +23,8 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-experimental-speech-to-text'
+import type {} from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-fs'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
@@ -30,13 +33,15 @@ import type { ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import z from '@deepseek-ai/schemastery'
 import { RouterAiAdapter } from './adapter.ts'
 import { Bridge } from './bridge.ts'
-import { ModelCatalog } from './catalog.ts'
+import { isChatModel, ModelCatalog } from './catalog.ts'
 import { CostBook } from './costs.ts'
+import { registerDrawTool } from './draw.ts'
 import { API_BASE, KEYS_PAGE, ROUTE } from './links.ts'
 import { pricePair, windowLabel } from './money.ts'
 import { PreferenceStore } from './preferences.ts'
 import { buildRoute, describeModel, describeUnknownModel, isolatedAuth } from './provider.ts'
 import { registerSlashCommand } from './slash.ts'
+import { registerSpeechProvider } from './speech.ts'
 import { STARTER_MODELS } from './starter.ts'
 
 export const name = 'llm-routerai'
@@ -115,13 +120,13 @@ export function apply(ctx: Context, config: Config): void {
     const models = []
     for (const slug of wanted) {
       const card = catalog.find(slug)
-      if (card !== undefined) {
+      if (card !== undefined && isChatModel(card)) {
         models.push(describeModel(card, apiBase))
       } else if (catalog.size === 0) {
         models.push(describeUnknownModel(slug, apiBase))
       } else if (!warnedAbout.has(slug)) {
         warnedAbout.add(slug)
-        ctx.logger.warn(`[routerai] модели ${slug} нет в каталоге RouterAI — в пикер она не попадёт`)
+        ctx.logger.warn(`[routerai] ${slug}: в каталоге RouterAI нет такой чат-модели — в пикер она не попадёт`)
       }
     }
     route = new Map([[ROUTE, buildRoute(models, apiBase, credential)]])
@@ -236,6 +241,19 @@ export function apply(ctx: Context, config: Config): void {
     for (const endpoint of bridge.endpoints()) {
       scope.effect(() => scope.connection.fetch.register({ ...endpoint, requestBody: 'buffered' }), `routerai: ${endpoint.path}`)
     }
+  })
+
+  ctx.inject(['tools'], (scope) => {
+    registerDrawTool(scope, {
+      apiBase, readKey,
+      imageModel: () => preferences.current.imageModel,
+      attachments: () => optional.attachments,
+      charged: (sessionId, model, rub) => { costs.addCharge(sessionId, model, rub) },
+    })
+  })
+
+  ctx.inject(['speechToText'], (scope) => {
+    registerSpeechProvider(scope, { apiBase, readKey, speechModel: () => preferences.current.speechModel })
   })
 
   ctx.inject(['commands'], (scope) => {

@@ -15,7 +15,21 @@ export interface ModelCard {
   tools: boolean
   reasoning: boolean
   vision: boolean
+  /** Что модель выдаёт. В пикер попадают только модели с `text`; остальные служат инструментам и голосовому вводу. */
+  makes: Output[]
+  /** Цена одной картинки, ₽ — только у моделей с оплатой за картинку. */
+  perImage?: number
+  /** Цена секунды аудио, ₽ — у моделей распознавания речи с посекундной оплатой. */
+  perSecond?: number
 }
+
+export type Output = 'text' | 'image' | 'transcription'
+
+const OUTPUTS: readonly Output[] = ['text', 'image', 'transcription']
+
+export const isChatModel = (card: ModelCard): boolean => card.makes.includes('text')
+export const isImageModel = (card: ModelCard): boolean => card.makes.includes('image')
+export const isSpeechModel = (card: ModelCard): boolean => card.makes.includes('transcription')
 
 const SLUG = /^~?[a-z0-9][\w.-]*\/[a-z0-9][\w.:-]*$/i
 
@@ -57,6 +71,14 @@ function tokenPrice(pricing: Bag, units: Bag): TokenPrice | undefined {
   return price
 }
 
+/** Цена за картинку из `image_pricing`; модели с оплатой по токенам или мегапикселям так не оценить. */
+function firstImagePrice(pricing: unknown): number | undefined {
+  if (!Array.isArray(pricing)) return undefined
+  const perImage = pricing.map(bag).filter(entry => entry['unit'] === 'image').map(entry => amount(entry['price']))
+  const known = perImage.filter((value): value is number => value !== undefined)
+  return known.length === 0 ? undefined : Math.min(...known)
+}
+
 /** «Anthropic: Claude Sonnet 5.5» → производитель и название по отдельности. */
 function splitName(name: string, slug: string): { maker: string; title: string } {
   const colon = name.indexOf(': ')
@@ -65,13 +87,14 @@ function splitName(name: string, slug: string): { maker: string; title: string }
   return { maker: vendor.charAt(0).toUpperCase() + vendor.slice(1), title: name.trim() || slug }
 }
 
-/** Одна запись ответа; undefined для повреждённых записей и моделей без текстового вывода. */
+/** Одна запись ответа; undefined для повреждённых записей и моделей, с которыми плагин не работает (эмбеддинги, видео, озвучка). */
 export function readModelCard(entry: unknown): ModelCard | undefined {
   const raw = bag(entry)
   if (!isModelSlug(raw['id'])) return undefined
   const architecture = bag(raw['architecture'])
-  const produces = strings(architecture['output_modalities'])
-  if (produces.length > 0 && !produces.includes('text')) return undefined
+  const declared = strings(architecture['output_modalities'])
+  const makes = declared.length === 0 ? ['text' as const] : OUTPUTS.filter(output => declared.includes(output))
+  if (makes.length === 0) return undefined
   const parameters = strings(raw['supported_parameters'])
   const slug = raw['id']
   const card: ModelCard = {
@@ -81,11 +104,18 @@ export function readModelCard(entry: unknown): ModelCard | undefined {
     tools: parameters.includes('tools'),
     reasoning: parameters.includes('reasoning') || parameters.includes('reasoning_effort'),
     vision: strings(architecture['input_modalities']).includes('image'),
+    makes,
   }
   const window = amount(raw['context_length'])
   if (window !== undefined && window > 0) card.window = window
   const price = tokenPrice(bag(raw['pricing']), bag(raw['pricing_units']))
   if (price !== undefined) card.price = price
+  const perImage = firstImagePrice(raw['image_pricing'])
+  if (perImage !== undefined) card.perImage = perImage
+  if (bag(raw['pricing_units'])['seconds'] === 'second') {
+    const perSecond = amount(bag(raw['pricing'])['seconds'])
+    if (perSecond !== undefined) card.perSecond = perSecond
+  }
   return card
 }
 
@@ -114,7 +144,7 @@ export async function downloadModelList(apiBase: string, signal?: AbortSignal): 
 }
 
 interface Snapshot {
-  format: 1
+  format: 2
   source: string
   savedAt: number
   cards: ModelCard[]
@@ -122,10 +152,10 @@ interface Snapshot {
 
 function acceptSnapshot(raw: unknown): Snapshot | undefined {
   const value = bag(raw)
-  if (value['format'] !== 1 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
+  if (value['format'] !== 2 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
   if (!Array.isArray(value['cards'])) return undefined
-  const cards = (value['cards'] as unknown[]).filter((card): card is ModelCard => isModelSlug(bag(card)['slug']))
-  return { format: 1, source: value['source'], savedAt: value['savedAt'], cards }
+  const cards = (value['cards'] as unknown[]).filter((card): card is ModelCard => isModelSlug(bag(card)['slug']) && Array.isArray(bag(card)['makes']))
+  return { format: 2, source: value['source'], savedAt: value['savedAt'], cards }
 }
 
 export interface ModelCatalogOptions {
@@ -190,7 +220,7 @@ export class ModelCatalog {
       const cards = await this.download(this.options.apiBase)
       this.lastError = undefined
       this.adopt(cards, this.clock())
-      await this.disk?.write({ format: 1, source: this.options.apiBase, savedAt: this.stamp, cards })
+      await this.disk?.write({ format: 2, source: this.options.apiBase, savedAt: this.stamp, cards })
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
     }

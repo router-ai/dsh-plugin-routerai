@@ -53,6 +53,12 @@ label.rai-row{cursor:pointer}
 .rai-sheet li>span{flex:1;min-width:0}
 .rai-banner{display:flex;align-items:center;gap:12px;max-width:540px;padding:12px 14px;border-radius:var(--dsw-radius-md);font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l3);box-shadow:0 8px 24px rgba(0,0,0,.14)}
 .rai-banner>div{flex:1;min-width:0;display:grid;gap:2px}
+.rai-drawn{display:grid;gap:8px;padding:10px 12px;border-radius:var(--dsw-radius-md);font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l3)}
+.rai-gallery{display:flex;flex-wrap:wrap;gap:8px}
+.rai-gallery img,.rai-gallery i{display:block;max-width:min(320px,100%);max-height:320px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-2)}
+.rai-gallery i{width:200px;height:200px}
+.rai-busy{width:14px;height:14px;flex:none;border-radius:50%;border:2px solid var(--dsw-alias-border-l3);border-top-color:${ACCENT};animation:rai-turn .8s linear infinite}
+@keyframes rai-turn{to{transform:rotate(1turn)}}
 `
 
 /** Подключить стили. Атрибуты data-plugin* — соглашение harness: по ним он снимает стили выгруженного плагина. */

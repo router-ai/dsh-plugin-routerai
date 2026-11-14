@@ -6,6 +6,7 @@ import { RouterAiAdapter } from '../src/adapter.ts'
 import type { RouteObserver } from '../src/adapter.ts'
 import type { CallTokens } from '../src/costs.ts'
 import type { MoneyProblem } from '../src/failures.ts'
+import { isChatModel } from '../src/catalog.ts'
 import { describeProblem, recognize } from '../src/failures.ts'
 import { buildRoute, describeModel, describeUnknownModel, isolatedAuth } from '../src/provider.ts'
 import { sampleCards, sendJson, stubServer } from './helpers.ts'
@@ -24,7 +25,7 @@ async function setUp(reply: 'stream' | { status: number; message: string }) {
     response.end('data: [DONE]\n\n')
   })
   const apiBase = `${stub.origin}/api/v1`
-  const models = sampleCards().map(card => describeModel(card, apiBase))
+  const models = sampleCards().filter(isChatModel).map(card => describeModel(card, apiBase))
   const route = new Map([['routerai', buildRoute(models, apiBase, credentialRef('ROUTERAI_API_KEY'))]])
   const spent: { model: string; tokens: CallTokens }[] = []
   const refused: MoneyProblem[] = []
@@ -72,7 +73,7 @@ describe('описание моделей для pi-ai', () => {
   })
 
   it('модель без рассуждения и неизвестная каталогу модель описываются осторожно', () => {
-    const plain = sampleCards().find(card => !card.reasoning)!
+    const plain = sampleCards().find(card => isChatModel(card) && !card.reasoning)!
     expect(describeModel(plain, base)).toMatchObject({ reasoning: false })
     expect(describeModel(plain, base)).not.toHaveProperty('thinkingLevelMap')
     expect(describeUnknownModel('new/model', base)).toMatchObject({ id: 'new/model', name: 'new/model', input: ['text'], reasoning: false, contextWindow: 128_000 })

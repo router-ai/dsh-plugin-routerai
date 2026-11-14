@@ -34,7 +34,7 @@ describe('настройки', () => {
     await store.restore()
     expect(store.pickerModels()).toEqual(['a/one', 'b/two'])
     expect(store.customized).toBe(false)
-    expect(store.current).toMatchObject({ utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100 })
+    expect(store.current).toMatchObject({ utilityModel: DEFAULT_UTILITY_MODEL, lowBalance: 100, imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo' })
   })
 
   it('сохраняет выбор, убирает повторы и переживает перезапуск', async () => {
@@ -81,6 +81,16 @@ describe('стоимость сессий', () => {
     expect(cost?.perModel['anthropic/claude-sonnet-5.5']?.calls).toBe(2)
     expect(cachedShare(cost!.tokens)).toBeCloseTo(3000 / 4010)
     expect(book.of('s2')).toBeUndefined()
+  })
+
+  it('готовая сумма (картинка) входит в итог, но не считается запросом к чат-модели', async () => {
+    const book = new CostBook(`${await scratchDir()}/costs.json`)
+    book.addCall('s1', 'anthropic/claude-sonnet-5.5', sonnet, { inputTokens: 1_000_000 })
+    book.addCharge('s1', 'bytedance-seed/seedream-5-5', 2.16)
+    const cost = book.of('s1')
+    expect(cost?.total).toBeCloseTo(215.74878 + 2.16, 4)
+    expect(cost).toMatchObject({ calls: 1, last: { model: 'bytedance-seed/seedream-5-5', rub: 2.16 } })
+    expect(cost?.perModel['bytedance-seed/seedream-5-5']).toEqual({ calls: 1, rub: 2.16 })
   })
 
   it('сохраняется на диск и поднимается обратно', async () => {

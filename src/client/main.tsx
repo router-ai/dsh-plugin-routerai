@@ -5,8 +5,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { ComponentType } from 'react'
 import { MoneyNotice } from './MoneyNotice.tsx'
+import { DRAW_TOOL } from '../links.ts'
+import { DrawCard } from './DrawCard.tsx'
 import { Logo } from './parts.tsx'
 import { Remote } from './remote.ts'
 import { SessionCost } from './SessionCost.tsx'
@@ -68,6 +71,9 @@ export function apply(ctx: Context): void {
       component: MoneyNotice,
     },
   ]
+
+  // Карточка вызова инструмента рисования: показывает саму картинку, а не строку «вызов инструмента».
+  placements.push({ slot: 'tool.call.toolview', options: { key: DRAW_TOOL }, component: DrawCard })
 
   for (const { slot, options, component } of placements) {
     slots.inject(slot, () => slots.register({ name: slot, locale: NAMESPACE, ...options }, component))

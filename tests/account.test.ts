@@ -164,7 +164,8 @@ describe('мост для интерфейса', () => {
     expect(body).toEqual({
       connected: false, keyMask: null, signIn: { stage: 'idle' }, account: null,
       picker: { models: ['anthropic/claude-sonnet-5.5'], custom: false },
-      utilityModel: 'deepseek/deepseek-v4.1-flash', lowBalance: 100, problem: null,
+      utilityModel: 'deepseek/deepseek-v4.1-flash', lowBalance: 100,
+      imageModel: 'bytedance-seed/seedream-5-5', speechModel: 'openai/whisper-large-v3-turbo', problem: null,
     })
   })
 
@@ -185,8 +186,9 @@ describe('мост для интерфейса', () => {
 
   it('меняет настройки и объясняет отказ', async () => {
     const { send } = await setUp()
-    expect((await send('preferences', { models: ['openai/gpt-6.1-sol', 'openai/gpt-6.1-sol'], utilityModel: null, lowBalance: 10 })).status).toBe(200)
-    expect((await send('overview')).body).toMatchObject({ picker: { models: ['openai/gpt-6.1-sol'], custom: true }, utilityModel: null, lowBalance: 10 })
+    expect((await send('preferences', { models: ['openai/gpt-6.1-sol', 'openai/gpt-6.1-sol'], utilityModel: null, lowBalance: 10, imageModel: null, speechModel: 'openai/whisper-large-v3' })).status).toBe(200)
+    expect((await send('overview')).body).toMatchObject({ picker: { models: ['openai/gpt-6.1-sol'], custom: true }, utilityModel: null, lowBalance: 10, imageModel: null, speechModel: 'openai/whisper-large-v3' })
+    expect((await send('preferences', { speechModel: null })).status).toBe(400)
     const refused = await send('preferences', { models: ['какая-то модель'] })
     expect(refused.status).toBe(400)
     expect(refused.body.error).toContain('какая-то модель')

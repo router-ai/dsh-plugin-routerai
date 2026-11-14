@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import { loadAccount, looksLikeApiKey } from './account.ts'
 import type { AccountView } from './account.ts'
+import { isChatModel } from './catalog.ts'
 import type { ModelCard, ModelCatalog } from './catalog.ts'
 import { BILLING_PAGE, KEYS_PAGE } from './links.ts'
 import { pricePair, rub, windowLabel } from './money.ts'
@@ -93,7 +94,7 @@ export function registerSlashCommand(ctx: Context, deps: SlashDeps): void {
       case 'find': {
         await deps.catalog.sync()
         const needle = argument.toLowerCase()
-        const hits = deps.catalog.all().filter(card => `${card.slug} ${card.maker} ${card.title}`.toLowerCase().includes(needle))
+        const hits = deps.catalog.all().filter(isChatModel).filter(card => `${card.slug} ${card.maker} ${card.title}`.toLowerCase().includes(needle))
         if (hits.length === 0) return bad(`По запросу «${argument}» в каталоге RouterAI ничего нет.`)
         const shown = hits.slice(0, 30).map(modelLine)
         if (hits.length > shown.length) shown.push(`…и ещё ${hits.length - shown.length}. Уточните запрос.`)
