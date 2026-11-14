@@ -433,11 +433,21 @@ describe('оценка стоимости ролика по сетке цен к
     })!
     expect(upscaler.media).toMatchObject({ needsSource: true, upscale: { min: 1.5, max: 3 } })
     expect(upscaler.perSecond).toBeUndefined()
-    // Кратность и режим не известны — худший случай: 640×360 → ×3 = 2,07 Мп; 3 с; 5 ₽ за мегапиксель-секунду.
-    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 } })?.rub).toBeCloseTo(2.0736 * 3 * 5 * 1.1, 3)
-    // Известны: ×2 в точном режиме — 1280×720 = 0,92 Мп по 2 ₽; в креативном — по 5 ₽.
-    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 }, upscale: { factor: 2, creative: false } })?.rub).toBeCloseTo(0.9216 * 3 * 2 * 1.1, 3)
-    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 }, upscale: { factor: 2, creative: true } })?.rub).toBeCloseTo(0.9216 * 3 * 5 * 1.1, 3)
+    // Цена цента — креативная строка / 5 = 1 ₽; сумма округляется вверх до целого цента.
+    // Кратность и режим не известны — худший случай: 640×360 → ×3 = 2,07 Мп; 3 с; 5 ₽ → 31,1 → 32 ₽.
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 } })?.rub).toBeCloseTo(32, 6)
+    // Известны: ×2 в точном режиме — 0,92 Мп × 3 с × 2 ₽ = 5,53 → 6 ₽; в креативном — 13,8 → 14 ₽.
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 }, upscale: { factor: 2, creative: false } })?.rub).toBeCloseTo(6, 6)
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 }, upscale: { factor: 2, creative: true } })?.rub).toBeCloseTo(14, 6)
+
+    // Настоящие цены и списания RouterAI: точный режим ×1,5 — 6,41 ₽, креативный ×2 — 14,95 ₽.
+    const real = readModelCard({
+      id: 'black-forest-labs/flux-video-upscale', name: 'FLUX Video Upscale', architecture: { input_modalities: ['text', 'video'], output_modalities: ['video'] }, upscale_factor: { min: 1.5, max: 3 },
+      video_pricing: [{ unit: 'megapixel_second', variant: 'precise', resolution: null, price: 3.7378978 }, { unit: 'megapixel_second', variant: 'creative', resolution: null, price: 5.339854 }],
+    })!
+    const clip = { seconds: 3.03, width: 640, height: 360 }
+    expect(estimateFilm(real, { ...none, source: clip, upscale: { factor: 1.5, creative: false } })?.rub).toBeCloseTo(6.4078248, 5)
+    expect(estimateFilm(real, { ...none, source: clip, upscale: { factor: 2, creative: true } })?.rub).toBeCloseTo(14.9515912, 5)
     expect(estimateFilm(upscaler, { ...none, source: { seconds: 3 } })).toBeUndefined()
     expect(estimateFilm(upscaler, none)).toBeUndefined()
   })
@@ -454,10 +464,11 @@ describe('оценка стоимости ролика по сетке цен к
     expect(estimateFilm(withInput, { ...none, seconds: 5, resolution: '720p', source: { seconds: 3 } })?.rub).toBeCloseTo(1280 * 720 / 1024 * (24 * 8 + 1) * 0.0002, 4)
   })
 
-  it('длинный ролик считает по более дорогому тарифу', () => {
-    const card = film({ video_pricing: [second(2, '480p'), second(5, '480p', 'long')] })
-    expect(estimateFilm(card, { ...none, seconds: 8, resolution: '480p' })?.rub).toBe(16)
+  it('у модели с тарифом «длинный ролик» берёт большую из цен для разрешения', () => {
+    const card = film({ video_pricing: [second(2, '480p'), second(5, '480p', 'long'), second(9, '1080p'), second(7, '1080p', 'long')] })
+    expect(estimateFilm(card, { ...none, seconds: 8, resolution: '480p' })?.rub).toBe(40)
     expect(estimateFilm(card, { ...none, seconds: 20, resolution: '480p' })?.rub).toBe(100)
+    expect(estimateFilm(card, { ...none, seconds: 2, resolution: '1080p' })?.rub).toBe(18)
   })
 
   it('учитывает минимальную стоимость генерации', () => {

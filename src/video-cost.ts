@@ -30,8 +30,16 @@ export interface Estimate {
   basis: string
 }
 
-const LONG_AFTER_SECONDS = 10
-const UPSCALE_MARGIN = 1.1
+/** Тарифы апскейла в центах за мегапиксель-секунду — по ним из рублёвой цены строки получается цена цента. */
+const UPSCALE_CENTS: Record<string, number> = { creative: 5, precise: 3.5 }
+
+function centPrice(rows: readonly VideoPrice[]): number | undefined {
+  for (const [variant, cents] of Object.entries(UPSCALE_CENTS)) {
+    const row = rows.find(candidate => candidate.variant === variant)
+    if (row !== undefined) return row.price / cents
+  }
+  return undefined
+}
 
 const sameResolution = (a: string | null, b: string | undefined) => a !== null && b !== undefined && a.toLowerCase() === b.toLowerCase()
 
@@ -70,8 +78,9 @@ function secondRows(rows: readonly VideoPrice[], plan: FilmPlan): VideoPrice[] {
     const wanted = plan.frames > 0 ? byImage : byText
     return wanted.length > 0 ? wanted : [...byImage, ...byText]
   }
-  // «Длинный ролик» тарифицируется дороже, а порог каталог не называет — для роликов длиннее 10 с считаем по худшему случаю.
-  return (plan.seconds ?? 0) > LONG_AFTER_SECONDS ? [...of(null), ...of('long')] : of(null)
+  // «Длинный ролик» тарифицируется дороже, а порог длительности каталог не называет. По совету RouterAI
+  // берём большую из цен — обычную или long — для любого ролика такой модели.
+  return [...of(null), ...of('long')]
 }
 
 /** Ширина кадра по разрешению и соотношению сторон (по умолчанию 16:9). */
@@ -104,8 +113,11 @@ export function estimateFilm(card: ModelCard, plan: FilmPlan): Estimate | undefi
     const megapixels = source.width * factor * source.height * factor / 1_000_000
     const mode = plan.upscale === undefined ? undefined : megapixelRows.find(row => row.variant === (plan.upscale!.creative ? 'creative' : 'precise'))
     const price = mode?.price ?? Math.max(...megapixelRows.map(row => row.price))
-    // Запас 10 %: провайдер округляет объём работы вверх (живой прогон: оценка 5,87 ₽, списано 6,41 ₽).
-    total = megapixels * outputSeconds * price * UPSCALE_MARGIN
+    // Поставщик считает апскейл в целых центах и округляет вверх. Рублёвая цена цента видна из сетки:
+    // креативный режим стоит 5 центов за мегапиксель-секунду, точный — 3,5. Это оценка сверху.
+    const cent = centPrice(megapixelRows)
+    const exact = megapixels * outputSeconds * price
+    total = cent === undefined ? exact : Math.ceil(exact / cent - 1e-9) * cent
     basis = `${megapixels.toFixed(2)} Мп × ${outputSeconds.toFixed(1)} с`
   } else if (perSecond !== undefined) {
     if (outputSeconds === undefined) return undefined
