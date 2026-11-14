@@ -112,7 +112,14 @@ dsh plugin --profile desktop add @router-ai/dsh-plugin-routerai
 ### Видео
 
 «Сними ролик, где…» или «оживи эту картинку» — агент создаст задачу, дождётся результата и сохранит mp4
-в `routerai-media`. Картинка из проекта может стать первым кадром.
+в `routerai-media`. Картинка из проекта может стать первым кадром: так можно оживить логотип, который агент
+только что нарисовал.
+
+<img src="https://raw.githubusercontent.com/router-ai/dsh-plugin-routerai/main/docs/media/video.png" alt="Агент оживил логотип: карточка видео с моделью, стоимостью и файлом" width="880">
+
+Вот что получилось — четыре секунды, 9,61 ₽:
+
+<img src="https://raw.githubusercontent.com/router-ai/dsh-plugin-routerai/main/docs/media/video-result.gif" alt="Оживший логотип: пар поднимается над чашкой и огибает маяк" width="300">
 
 Видео включается выбором модели в настройках: ролик делается несколько минут и стоит заметно дороже картинки.
 Там же задаётся потолок стоимости одного ролика — дороже инструмент снимать не станет и объяснит почему.
@@ -192,6 +199,6 @@ npm run build
 ## Поддержка и лицензия
 
 Вопросы и ошибки — в [задачах репозитория](https://github.com/router-ai/dsh-plugin-routerai/issues)
-или на [routerai.ru/support](https://routerai.ru/support).
+или на почту [support@routerai.ru](mailto:support@routerai.ru).
 
 Лицензия MIT.
