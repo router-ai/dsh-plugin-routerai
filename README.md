@@ -45,6 +45,22 @@ dsh plugin --profile desktop add @router-ai/dsh-plugin-routerai
 
 Перезапустите приложение.
 
+<details>
+<summary>Установка через список плагинов RouterAI — с обновлениями в один клик</summary>
+
+1. В разделе **Плагины** среди экспериментальных включите **Custom plugin indexes** — появится вкладка «Обзор».
+2. Во вкладке «Обзор» нажмите **Add index source** и вставьте адрес списка:
+
+   ```
+   https://routerai.ru/dsh/index.json
+   ```
+
+3. На карточке RouterAI нажмите **Установить**.
+
+Новые версии плагина появляются в списке сами. Подробнее — на [routerai.ru/dsh](https://routerai.ru/dsh).
+
+</details>
+
 ### 2. Войдите в RouterAI
 
 Откройте **Настройки → RouterAI** и нажмите **Войти через RouterAI**.
