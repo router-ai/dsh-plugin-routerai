@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { fileStem } from '../src/draw.ts'
-import { clipSeconds, readClip, readFrame } from '../src/film.ts'
+import { clipFrame, clipSeconds, readClip, readFrame } from '../src/film.ts'
+import { readModelCard } from '../src/catalog.ts'
+import { estimateFilm, priceTable } from '../src/video-cost.ts'
+import { rub } from '../src/money.ts'
 import { fitAspectRatio, fitCount, fitDuration, fitImageSize, fitOption, fitResolution, imageSizePixels, ratioValue, resolutionHeight } from '../src/fit.ts'
 import { drawPictures, makeFilm, MediaError, recognizeSpeech, sniffPictureType, speakText, wavSeconds } from '../src/media.ts'
 import { buildMenu, pickModel } from '../src/toolkit.ts'
@@ -162,9 +165,9 @@ describe('видео', () => {
       ],
     })
     const withSource = await studio([{ status: 'completed' }])
-    await makeFilm(`${withSource.origin}/api/v1`, KEY, { model: 'demo/director', prompt: 'продли ролик', sourceVideo: 'data:video/mp4;base64,AAAA', references: ['data:image/png;base64,CCCC'], seed: 7 }, new AbortController().signal, { pollMs: 5 })
+    await makeFilm(`${withSource.origin}/api/v1`, KEY, { model: 'demo/director', prompt: 'продли ролик', sourceVideo: 'data:video/mp4;base64,AAAA', references: ['data:image/png;base64,CCCC'], seed: 7, upscaleFactor: 2, creativity: 0 }, new AbortController().signal, { pollMs: 5 })
     expect(withSource.seen[0]!.body).toEqual({
-      model: 'demo/director', prompt: 'продли ролик', seed: 7,
+      model: 'demo/director', prompt: 'продли ролик', seed: 7, upscale_factor: 2, creativity: 0,
       input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,CCCC' } }, { type: 'video_url', video_url: { url: 'data:video/mp4;base64,AAAA' } }],
     })
     const withReferences = await studio([{ status: 'completed' }])
@@ -372,5 +375,131 @@ describe('выбор модели агентом', () => {
     expect(pickModel(menu, undefined)).toEqual({ model: 'a/main' })
     expect(pickModel(menu, 'b/vector')).toEqual({ model: 'b/vector' })
     expect(pickModel(menu, 'z/expensive')).toMatchObject({ model: 'a/main', note: expect.stringContaining('не разрешена в настройках') })
+  })
+})
+
+describe('оценка стоимости ролика по сетке цен каталога', () => {
+  const film = (extra: object) => readModelCard({ id: 'demo/film', name: 'Demo: Film', architecture: { input_modalities: ['text', 'image', 'video'], output_modalities: ['video'] }, supported_durations: [3, 4, 5], ...extra })!
+  const second = (price: number, resolution: string | null = null, variant: string | null = null) => ({ unit: 'second', variant, resolution, price })
+  const none = { frames: 0, references: 0 }
+
+  // Примеры с настоящими ценами и списаниями RouterAI.
+  const grok = film({ pricing: { seconds: 2.1359416 }, video_pricing: [second(2.1359416, '480p'), second(3.2039124, '720p'), second(14.9515912, '1080p'), { unit: 'image', variant: 'image_input', resolution: null, price: 1.0679708 }] })
+  const omni = film({ pricing: { seconds: 2.47470193776 }, video_pricing: [second(2.47470193776, '360p'), second(7.42410581328, '720p')] })
+
+  it('цена секунды зависит от разрешения', () => {
+    expect(estimateFilm(omni, { ...none, seconds: 3, resolution: '720p' })?.rub).toBeCloseTo(22.27, 2)
+    expect(estimateFilm(omni, { ...none, seconds: 3, resolution: '360p' })?.rub).toBeCloseTo(7.42, 2)
+  })
+
+  it('входные картинки оплачиваются поштучно', () => {
+    expect(estimateFilm(grok, { ...none, seconds: 4, resolution: '480p', frames: 1 })?.rub).toBeCloseTo(9.61, 2)
+    expect(estimateFilm(grok, { seconds: 4, resolution: '480p', frames: 2, references: 1 })?.rub).toBeCloseTo(2.1359416 * 4 + 3 * 1.0679708, 4)
+    expect(estimateFilm(grok, { ...none, seconds: 4, resolution: '480p', frames: 1 })?.basis).toBe('4 с в 480p + 1 входная картинка')
+  })
+
+  it('без известного разрешения считает по самой дорогой секунде', () => {
+    expect(estimateFilm(grok, { ...none, seconds: 2 })?.rub).toBeCloseTo(14.9515912 * 2, 4)
+    expect(estimateFilm(grok, { ...none, seconds: 2, resolution: '4K' })?.rub).toBeCloseTo(14.9515912 * 2, 4)
+  })
+
+  it('строка без разрешения действует для остальных разрешений', () => {
+    const card = film({ video_pricing: [second(5), second(9, '1080p')] })
+    expect(estimateFilm(card, { ...none, seconds: 2, resolution: '720p' })?.rub).toBe(10)
+    expect(estimateFilm(card, { ...none, seconds: 2, resolution: '1080p' })?.rub).toBe(18)
+  })
+
+  it('выбирает тариф по звуку, а без пожелания — более дорогой', () => {
+    const card = film({ video_pricing: [second(10, null, 'with_audio'), second(6, null, 'without_audio')] })
+    expect(estimateFilm(card, { ...none, seconds: 5, audio: false })?.rub).toBe(30)
+    expect(estimateFilm(card, { ...none, seconds: 5, audio: true })?.rub).toBe(50)
+    expect(estimateFilm(card, { ...none, seconds: 5 })?.rub).toBe(50)
+  })
+
+  it('различает генерацию по тексту, по картинке, по референсам и с входным видео', () => {
+    const card = film({ video_input_billed: true, video_pricing: [second(4, null, 'text_to_video'), second(6, null, 'image_to_video'), second(8, null, 'reference'), second(9, null, 'with_video_input')] })
+    expect(estimateFilm(card, { ...none, seconds: 5 })?.rub).toBe(20)
+    expect(estimateFilm(card, { seconds: 5, frames: 1, references: 0 })?.rub).toBe(30)
+    expect(estimateFilm(card, { seconds: 5, frames: 0, references: 2 })?.rub).toBe(40)
+    // Длительность исходника прибавляется к оплачиваемой: 5 с результата + 3 с исходника.
+    expect(estimateFilm(card, { ...none, seconds: 5, source: { seconds: 3 } })?.rub).toBe(72)
+  })
+
+  it('апскейл считает по мегапикселям результата при наибольшей кратности и дорогом режиме', () => {
+    const upscaler = readModelCard({
+      id: 'demo/upscale', name: 'Demo: Upscale', architecture: { input_modalities: ['text', 'video'], output_modalities: ['video'] },
+      upscale_factor: { min: 1.5, max: 3 }, creativity: [0, 1],
+      video_pricing: [{ unit: 'megapixel_second', variant: 'precise', resolution: null, price: 2 }, { unit: 'megapixel_second', variant: 'creative', resolution: null, price: 5 }],
+    })!
+    expect(upscaler.media).toMatchObject({ needsSource: true, upscale: { min: 1.5, max: 3 } })
+    expect(upscaler.perSecond).toBeUndefined()
+    // Кратность и режим не известны — худший случай: 640×360 → ×3 = 2,07 Мп; 3 с; 5 ₽ за мегапиксель-секунду.
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 } })?.rub).toBeCloseTo(2.0736 * 3 * 5 * 1.1, 3)
+    // Известны: ×2 в точном режиме — 1280×720 = 0,92 Мп по 2 ₽; в креативном — по 5 ₽.
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 }, upscale: { factor: 2, creative: false } })?.rub).toBeCloseTo(0.9216 * 3 * 2 * 1.1, 3)
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3, width: 640, height: 360 }, upscale: { factor: 2, creative: true } })?.rub).toBeCloseTo(0.9216 * 3 * 5 * 1.1, 3)
+    expect(estimateFilm(upscaler, { ...none, source: { seconds: 3 } })).toBeUndefined()
+    expect(estimateFilm(upscaler, none)).toBeUndefined()
+  })
+
+  it('токенные модели: токены зависят от размера кадра и длительности', () => {
+    const card = film({ video_pricing: [{ unit: 'token', variant: null, resolution: null, price: 0.0001 }] })
+    // 1280×720 / 1024 × (24 × 5 + 1) = 108 900 токенов.
+    expect(estimateFilm(card, { ...none, seconds: 5, resolution: '720p' })?.rub).toBeCloseTo(108_900 * 0.0001, 4)
+    expect(estimateFilm(card, { ...none, seconds: 5, resolution: '720p', aspectRatio: '9:16' })?.rub).toBeCloseTo(108_900 * 0.0001, 4)
+    expect(estimateFilm(card, { ...none, seconds: 5 })).toBeUndefined()
+    // С входным видео его секунды прибавляются, а цена берётся из строки with_video_input.
+    const withInput = film({ video_pricing: [{ unit: 'token', variant: null, resolution: null, price: 0.0004 }, { unit: 'token', variant: 'with_video_input', resolution: null, price: 0.0002 }] })
+    expect(estimateFilm(withInput, { ...none, seconds: 5, resolution: '720p' })?.rub).toBeCloseTo(108_900 * 0.0004, 4)
+    expect(estimateFilm(withInput, { ...none, seconds: 5, resolution: '720p', source: { seconds: 3 } })?.rub).toBeCloseTo(1280 * 720 / 1024 * (24 * 8 + 1) * 0.0002, 4)
+  })
+
+  it('длинный ролик считает по более дорогому тарифу', () => {
+    const card = film({ video_pricing: [second(2, '480p'), second(5, '480p', 'long')] })
+    expect(estimateFilm(card, { ...none, seconds: 8, resolution: '480p' })?.rub).toBe(16)
+    expect(estimateFilm(card, { ...none, seconds: 20, resolution: '480p' })?.rub).toBe(100)
+  })
+
+  it('учитывает минимальную стоимость генерации', () => {
+    const card = film({ video_pricing: [second(1), { unit: 'request', variant: 'minimum_per_generation', resolution: null, price: 12 }] })
+    expect(estimateFilm(card, { ...none, seconds: 3 })?.rub).toBe(12)
+    expect(estimateFilm(card, { ...none, seconds: 20 })?.rub).toBe(20)
+  })
+
+  it('без сетки цен опирается на минимальную цену секунды, а без всякой цены оценки нет', () => {
+    const old = film({ pricing: { seconds: 2 }, pricing_units: { seconds: 'second' } })
+    expect(estimateFilm(old, { ...none, seconds: 5 })).toMatchObject({ rub: 10, basis: '5 с по минимальной цене' })
+    expect(estimateFilm(film({}), { ...none, seconds: 5 })).toBeUndefined()
+  })
+
+  it('показывает агенту цены по разрешениям', () => {
+    expect(priceTable(grok, rub)).toBe('480p — 2,14 ₽, 720p — 3,20 ₽, 1080p — 14,95 ₽')
+    expect(priceTable(film({ video_pricing: [second(10, null, 'with_audio'), second(6, null, 'without_audio')] }), rub)).toBe('со звуком — 10 ₽, без звука — 6 ₽')
+    expect(priceTable(film({}), rub)).toBe('')
+  })
+
+  it('пропускает строки сетки с неизвестной единицей или без цены', () => {
+    const card = film({ video_pricing: [second(3), { unit: 'frame', price: 1 }, { unit: 'second', price: 'дорого' }, 'мусор'] })
+    expect(card.videoPricing).toEqual([{ unit: 'second', variant: null, resolution: null, price: 3 }])
+  })
+})
+
+describe('размер кадра ролика', () => {
+  const track = (version: 0 | 1, width: number, height: number) => {
+    const body = Buffer.alloc(version === 1 ? 96 : 84)
+    body[0] = version
+    body.writeUInt32BE(width * 65_536, version === 1 ? 88 : 76)
+    body.writeUInt32BE(height * 65_536, version === 1 ? 92 : 80)
+    return Buffer.concat([Buffer.from('tkhd'), body])
+  }
+
+  it('читается из заголовка видеодорожки; звуковая дорожка с нулевым размером пропускается', () => {
+    expect(clipFrame(Buffer.concat([Buffer.alloc(16), track(0, 0, 0), track(0, 640, 360)]))).toEqual({ width: 640, height: 360 })
+    expect(clipFrame(Buffer.concat([Buffer.alloc(8), track(1, 1920, 1080)]))).toEqual({ width: 1920, height: 1080 })
+  })
+
+  it('неизвестен, если дорожки нет или заголовок оборван', () => {
+    expect(clipFrame(Buffer.from('не видео'))).toBeUndefined()
+    expect(clipFrame(Buffer.concat([Buffer.from('tkhd'), Buffer.alloc(20)]))).toBeUndefined()
   })
 })

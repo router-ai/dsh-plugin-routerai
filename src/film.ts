@@ -12,6 +12,7 @@ import { fitAspectRatio, fitDuration, fitResolution, resolutionHeight } from './
 import { MEDIA_FOLDER, VIDEO_TOOL } from './links.ts'
 import { makeFilm } from './media.ts'
 import { rub } from './money.ts'
+import { estimateFilm, priceTable } from './video-cost.ts'
 import { allowedHint, buildMenu, pickModel, registerLiveTool } from './toolkit.ts'
 import type { ModelMenu } from './toolkit.ts'
 import { isVideoModel } from './catalog.ts'
@@ -45,11 +46,24 @@ interface Filmed {
 }
 
 const SOURCE_LIMIT = 30 * 1024 * 1024
+
 /**
- * Во сколько раз секунда входного видео дороже секунды результата. Тариф в каталоге не опубликован;
- * значение получено из живого прогона (ролик 3 с из исходника 3 с стоил ровно 3 × цена × 3 с).
+ * Размер кадра MP4 из заголовка видеодорожки (атом tkhd): нужен, чтобы оценить стоимость апскейла,
+ * который тарифицируется по мегапикселям результата. undefined, если размер не найти.
  */
-const SOURCE_RATE = 2
+export function clipFrame(bytes: Uint8Array): { width: number; height: number } | undefined {
+  const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  for (let at = data.indexOf('tkhd', 0, 'latin1'); at !== -1; at = data.indexOf('tkhd', at + 4, 'latin1')) {
+    // Ширина и высота — последние восемь байт заголовка дорожки, числа с фиксированной точкой 16.16.
+    const sizeAt = at + (data[at + 4] === 1 ? 92 : 80)
+    if (sizeAt + 8 > data.length) continue
+    const width = data.readUInt32BE(sizeAt) / 65_536
+    const height = data.readUInt32BE(sizeAt + 4) / 65_536
+    // У звуковой дорожки размер нулевой — ищем дальше.
+    if (width >= 16 && height >= 16 && width <= 16_384 && height <= 16_384) return { width, height }
+  }
+  return undefined
+}
 
 /**
  * Длительность ролика MP4 в секундах из его заголовка (атом mvhd); undefined, если её не найти.
@@ -69,7 +83,7 @@ export function clipSeconds(bytes: Uint8Array): number | undefined {
 }
 
 /** Прочитать готовый ролик из проекта: data-URI и длительность. Как и картинки — только из рабочего каталога. */
-export async function readClip(workspace: string, path: string): Promise<{ url: string; seconds?: number }> {
+export async function readClip(workspace: string, path: string): Promise<{ url: string; seconds?: number; width?: number; height?: number }> {
   const root = await realpath(workspace)
   const target = await realpath(isAbsolute(path) ? path : resolve(root, path)).catch(() => {
     throw new Error(`Исходное видео: файл не найден — ${path}`)
@@ -82,13 +96,25 @@ export async function readClip(workspace: string, path: string): Promise<{ url: 
   const type = bytes.subarray(4, 8).toString('latin1') === 'ftyp' ? 'video/mp4' : bytes.readUInt32BE(0) === 0x1a45dfa3 ? 'video/webm' : undefined
   if (type === undefined) throw new Error(`Исходное видео: нужен файл MP4 или WebM — ${path}`)
   const seconds = clipSeconds(bytes)
-  return { url: `data:${type};base64,${bytes.toString('base64')}`, ...seconds === undefined ? {} : { seconds } }
+  return { url: `data:${type};base64,${bytes.toString('base64')}`, ...seconds === undefined ? {} : { seconds }, ...clipFrame(bytes) }
+}
+
+/** Кратность апскейла по умолчанию: вдвое, если модель это позволяет. */
+function defaultFactor(range: { min: number; max: number }): number {
+  return Math.min(range.max, Math.max(range.min, 2))
+}
+
+/** Разрешение, которое уйдёт в запросе, если агент его не назвал: 720p или ближайшее к нему из доступных. */
+function defaultResolution(resolutions: readonly string[] | undefined): string | undefined {
+  return resolutions === undefined || resolutions.length === 0 ? undefined : fitResolution('720p', resolutions).value
 }
 
 function menuLine(card: ModelCard): string {
   const traits = card.media
   const facts = [
-    card.perSecond === undefined ? 'цена в каталоге не указана — использовать нельзя' : `от ${rub(card.perSecond)} за секунду`,
+    card.perSecond !== undefined ? `от ${rub(card.perSecond)} за секунду`
+      : card.videoPricing?.some(row => row.unit === 'megapixel_second') === true ? 'оплата по размеру кадра и длительности'
+        : card.videoPricing === undefined ? 'цена в каталоге не указана — использовать нельзя' : '',
     card.durations === undefined ? '' : `${card.durations[0]}–${card.durations.at(-1)} с`,
     traits?.frames?.includes('last_frame') === true ? 'первый и последний кадр' : traits?.frames?.includes('first_frame') === true ? 'первый кадр' : '',
     (traits?.references ?? 0) > 0 ? 'референсы' : '',
@@ -117,13 +143,14 @@ function buildFilmTool(ctx: Context, deps: FilmDeps): ToolDefinition {
     description: 'Снять короткое видео по текстовому описанию' + (takesFrame ? ', при желании — оживить картинку (первый кадр). ' : '. ')
       + `Работа занимает несколько минут; ролик сохраняется в папку ${MEDIA_FOLDER} рабочего каталога. `
       + 'Вызов платный и заметно дороже картинки — используй, только когда пользователь прямо просит видео.'
-      + (card === undefined ? '' : ` Сейчас выбрана модель ${card.slug}${card.perSecond === undefined ? '' : `, примерно ${rub(card.perSecond)} за секунду`}.`),
+      + (card === undefined ? '' : ` Сейчас выбрана модель ${card.slug}${card.perSecond === undefined ? '' : `, от ${rub(card.perSecond)} за секунду`}.`)
+      + (card === undefined || priceTable(card, rub) === '' ? '' : ` Цена секунды: ${priceTable(card, rub)}.`),
     parameters: {
       prompt: { type: 'string', required: true, description: 'Что происходит в кадре: сцена, движение, камера, стиль.' },
       duration: { type: 'integer', description: `Длительность в секундах; если модель такую не поддерживает, будет взята ближайшая.${allowedHint(card?.durations, ' с')}` },
       aspect_ratio: { type: 'string', description: `Соотношение сторон.${allowedHint(traits?.aspectRatios)}` },
       // Число, а не строка вида «480p»: такие значения слабые модели пишут без кавычек, и вызов становится некорректным JSON.
-      resolution: { type: 'integer', description: `Высота кадра в пикселях; чем больше, тем дороже.${allowedHint(traits?.resolutions?.map(resolutionHeight).filter((height): height is number => height !== undefined))}` },
+      resolution: { type: 'integer', description: `Высота кадра в пикселях; чем больше, тем дороже.${defaultResolution(traits?.resolutions) === undefined ? '' : ` По умолчанию ${resolutionHeight(defaultResolution(traits?.resolutions)!)}.`}${allowedHint(traits?.resolutions?.map(resolutionHeight).filter((height): height is number => height !== undefined))}` },
       first_frame: { type: 'string', description: takesFrame ? 'Путь к картинке в рабочем каталоге, которая станет первым кадром (image-to-video).' : 'Выбранная модель не принимает первый кадр — не указывай этот параметр.' },
       last_frame: { type: 'string', description: takesLast ? 'Путь к картинке, которой ролик должен закончиться: вместе с first_frame получится плавный переход между двумя картинками.' : refuse },
       references: { type: 'array', items: { type: 'string' }, description: takes === 0 ? refuse
@@ -133,6 +160,10 @@ function buildFilmTool(ctx: Context, deps: FilmDeps): ToolDefinition {
         ? `Путь к готовому ролику (MP4, WebM) в рабочем каталоге: чтобы продлить его, изменить или улучшить качество. В описании скажи, что с ним сделать. С исходным видео не указывай aspect_ratio и resolution — они берутся из ролика.${traits.needsSource === true ? ' Для этой модели параметр обязателен.' : ''}`
         : refuse },
       seed: { type: 'integer', description: traits?.seed === true ? 'Зерно (целое число): с тем же зерном и описанием модель повторит результат.' : refuse },
+      upscale_factor: { type: 'number', description: traits?.upscale === undefined ? refuse
+        : `Во сколько раз увеличить кадр исходного видео, от ${traits.upscale.min} до ${traits.upscale.max}. По умолчанию ${defaultFactor(traits.upscale)}. Цена растёт как квадрат кратности.` },
+      creative: { type: 'boolean', description: traits?.upscale === undefined ? refuse
+        : 'Креативный режим апскейла: модель дорисовывает детали, стоит дороже. По умолчанию выключен — точное увеличение без изменений в кадре.' },
       ...menu === undefined || menu.allowed.length < 2 ? {} : { model: { type: 'string' as const, enum: menu.allowed, description:
         `Какой моделью снимать. По умолчанию "${menu.main}". Выбирай другую, только если задаче нужны её возможности или цена. Допустимые параметры выше указаны для модели по умолчанию.\n${menu.allowed.map(slug => menuLine(menu.cards.get(slug)!)).join('\n')}` } },
       file_name: { type: 'string', description: 'Имя файла без расширения, латиницей.' },
@@ -198,35 +229,47 @@ function buildFilmTool(ctx: Context, deps: FilmDeps): ToolDefinition {
       }
       const duration = fitDuration(args.duration, chosen?.durations)
       const aspect = fitAspectRatio(args.aspect_ratio, abilities?.aspectRatios)
-      const resolution = fitResolution(args.resolution === undefined ? undefined : `${args.resolution}p`, abilities?.resolutions)
+      // Разрешение уходит в запросе всегда, когда модель их перечисляет: иначе она выберет сама,
+      // и цена секунды окажется непредсказуемой. С готовым видео разрешение берётся из исходника.
+      const resolution = args.resolution !== undefined ? fitResolution(`${args.resolution}p`, abilities?.resolutions)
+        : args.source_video === undefined ? { value: defaultResolution(abilities?.resolutions) } : { value: undefined }
       const seed = args.seed === undefined || abilities?.seed === true ? args.seed : undefined
       const notes = [picked.note, duration.note, aspect.note, resolution.note,
         args.seed !== undefined && seed === undefined ? 'Модель не поддерживает зерно — результат не будет воспроизводимым' : undefined,
       ].filter((note): note is string => note !== undefined)
       const mostReferences = abilities?.references ?? wanted.length
       if (wanted.length > mostReferences) notes.push(`Модель принимает не больше ${mostReferences} референсов — взяты первые ${mostReferences} из ${wanted.length}`)
-      const audio = args.audio === undefined || abilities?.audio === true ? args.audio : undefined
-      if (args.audio === true && audio === undefined) notes.push('Модель не делает звуковую дорожку — ролик без звука')
+      if (args.audio === true && abilities?.audio !== true) notes.push('Модель не делает звуковую дорожку — ролик без звука')
       const seconds = duration.value
 
       const source = args.source_video === undefined ? undefined : await readClip(workspace, args.source_video)
 
-      // Оценка до запуска: посекундная цена модели × длительность (у обработки готового видео — длительность исходника).
-      // Дороже потолка — не снимаем. Итог бывает выше оценки: первый кадр и высокое разрешение оплачиваются дополнительно.
-      // Без цены или длительности оценить нельзя, а значит и потолок не сработает — такой запрос не отправляется.
-      if (chosen !== undefined && chosen.perSecond === undefined) {
-        throw new Error(`У модели ${model} в каталоге RouterAI не указана цена — оценить стоимость и соблюсти потолок из настроек нельзя. Выберите другую модель в Настройках → RouterAI.`)
+      // Апскейл: кратность и режим уходят в запросе явно — от них зависит цена, и модель не должна выбирать их сама.
+      const upscale = abilities?.upscale === undefined ? undefined : {
+        factor: Math.min(abilities.upscale.max, Math.max(abilities.upscale.min, args.upscale_factor ?? defaultFactor(abilities.upscale))),
+        creative: args.creative === true,
       }
-      const billedSeconds = seconds ?? source?.seconds
-      if (source !== undefined && billedSeconds === undefined) {
-        throw new Error('Не удалось определить длительность исходного видео, поэтому нельзя оценить стоимость. Используйте ролик в формате MP4.')
+
+      // Оценка до запуска — по сетке цен каталога: разрешение, звук, входные картинки и видео, размер кадра у апскейла.
+      // Дороже потолка — не снимаем. Если каталог не даёт посчитать стоимость, потолок не сработал бы — такой запрос не отправляется.
+      const audio = args.audio === undefined || abilities?.audio === true ? args.audio : undefined
+      const estimate = chosen === undefined ? undefined : estimateFilm(chosen, {
+        ...seconds === undefined ? {} : { seconds },
+        ...resolution.value === undefined ? {} : { resolution: resolution.value },
+        ...aspect.value === undefined ? {} : { aspectRatio: aspect.value },
+        ...audio === undefined ? {} : { audio },
+        frames: (args.first_frame === undefined ? 0 : 1) + (args.last_frame === undefined ? 0 : 1),
+        references: Math.min(wanted.length, abilities?.references ?? wanted.length),
+        ...source === undefined ? {} : { source },
+        ...upscale === undefined ? {} : { upscale },
+      })
+      if (chosen !== undefined && estimate === undefined) {
+        throw new Error(source !== undefined && (source.seconds === undefined || source.width === undefined)
+          ? 'Не удалось определить длительность и размер кадра исходного видео, поэтому нельзя оценить стоимость. Используйте ролик в формате MP4.'
+          : `Стоимость ролика у модели ${model} по каталогу RouterAI оценить нельзя — потолок из настроек не удалось бы соблюсти. Выберите другую модель в Настройках → RouterAI.`)
       }
-      if (chosen?.perSecond !== undefined && billedSeconds !== undefined) {
-        // Готовое видео на входе оплачивается отдельно — по наблюдениям, вдвое дороже секунды результата.
-        const estimate = chosen.perSecond * billedSeconds + (source?.seconds === undefined ? 0 : SOURCE_RATE * chosen.perSecond * source.seconds)
-        if (estimate > deps.videoBudget()) {
-          throw new Error(`Ролик на ${Math.round(billedSeconds)} с обойдётся примерно в ${rub(estimate)} — это больше потолка ${rub(deps.videoBudget())} из Настроек → RouterAI. Сократите длительность или поднимите потолок.`)
-        }
+      if (estimate !== undefined && estimate.rub > deps.videoBudget()) {
+        throw new Error(`Ролик (${estimate.basis}) обойдётся примерно в ${rub(estimate.rub)} — это больше потолка ${rub(deps.videoBudget())} из Настроек → RouterAI. Сократите длительность, снизьте разрешение или поднимите потолок.`)
       }
 
       const film = await makeFilm(deps.apiBase, key, {
@@ -240,6 +283,7 @@ function buildFilmTool(ctx: Context, deps: FilmDeps): ToolDefinition {
         ...audio === undefined ? {} : { audio },
         ...seed === undefined ? {} : { seed },
         ...source === undefined ? {} : { sourceVideo: source.url },
+        ...upscale === undefined ? {} : { upscaleFactor: upscale.factor, creativity: upscale.creative ? 1 as const : 0 as const },
       }, run.signal, deps.pollMs === undefined ? {} : { pollMs: deps.pollMs })
 
       const folder = join(workspace, MEDIA_FOLDER)

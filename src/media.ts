@@ -157,6 +157,10 @@ export interface FilmRequest {
   seed?: number
   /** Готовый ролик (data-URI) для продления, правки или апскейла. */
   sourceVideo?: string
+  /** Апскейл: кратность увеличения кадра. */
+  upscaleFactor?: number
+  /** Апскейл: 0 — точный режим, 1 — креативный (с дорисовкой деталей). */
+  creativity?: 0 | 1
 }
 
 export interface Film {
@@ -196,6 +200,8 @@ export async function makeFilm(apiBase: string, apiKey: string, request: FilmReq
     ...inputs.length === 0 ? {} : { input_references: inputs },
     ...request.audio === undefined ? {} : { generate_audio: request.audio },
     ...request.seed === undefined ? {} : { seed: request.seed },
+    ...request.upscaleFactor === undefined ? {} : { upscale_factor: request.upscaleFactor },
+    ...request.creativity === undefined ? {} : { creativity: request.creativity },
   }, signal, 60_000)
   const jobId = typeof job['id'] === 'string' ? job['id'] : ''
   if (jobId === '') throw new MediaError('RouterAI не вернул идентификатор задачи на видео')

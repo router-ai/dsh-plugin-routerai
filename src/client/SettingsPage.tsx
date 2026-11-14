@@ -118,6 +118,12 @@ function imagePrice(t: Translate, entry: CatalogEntry): string {
   return ''
 }
 
+/** Подпись цены видео-модели: минимальная цена секунды, а у апскейла — способ оплаты. */
+function videoPrice(t: Translate, entry: CatalogEntry): string {
+  if (entry.perSecond !== undefined) return ` · ${t('perSecond', { price: rub(entry.perSecond) })}`
+  return entry.videoPricing?.some(row => row.unit === 'megapixel_second') === true ? ` · ${t('billedByFrame')}` : ''
+}
+
 /** «Anthropic Claude Sonnet 5.5»; у моделей, чьё название уже начинается с производителя, он не повторяется. */
 function fullName(entry: CatalogEntry): string {
   return entry.title.toLowerCase().startsWith(entry.maker.toLowerCase()) ? entry.title : `${entry.maker} ${entry.title}`
@@ -346,13 +352,13 @@ function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview;
         <select className="rai-choice" data-routerai="video-model" value={overview.videoModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ videoModel: event.target.value === '' ? null : event.target.value })) }}>
           <option value="">{t('videoOff')}</option>
           {known(directors, overview.videoModel) ? null : <option value={overview.videoModel ?? ''}>{overview.videoModel}</option>}
-          {directors.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.perSecond === undefined ? '' : ` · ${t('perSecond', { price: rub(entry.perSecond) })}`}</option>)}
+          {directors.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{videoPrice(t, entry)}</option>)}
         </select>
         <span className="rai-note">{t('videoHint')}</span>
       </label>
       {overview.videoModel === null ? null : (
         <Choices t={t} name="video-choices" main={overview.videoModel} chosen={overview.videoChoices} pool={anyDirectors}
-          label={entry => `${fullName(entry)}${entry.perSecond === undefined ? '' : ` · ${t('perSecond', { price: rub(entry.perSecond) })}`}${entry.media?.needsSource === true ? ` · ${t('needsSource')}` : ''}`}
+          label={entry => `${fullName(entry)}${videoPrice(t, entry)}${entry.media?.needsSource === true ? ` · ${t('needsSource')}` : ''}`}
           save={models => { action.run(() => remote.savePreferences({ videoChoices: models })) }} />
       )}
       {overview.videoModel === null ? null : (

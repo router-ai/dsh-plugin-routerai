@@ -25,6 +25,19 @@ export interface ModelCard {
   durations?: number[]
   /** Возможности модели для картинок или видео — то, под что инструменты подгоняют запрос. */
   media?: MediaTraits
+  /** Сетка цен видео-модели: по ней, а не по `perSecond`, оценивается стоимость ролика. */
+  videoPricing?: VideoPrice[]
+}
+
+/** Строка сетки цен видео-модели, как её отдаёт каталог (`video_pricing`). */
+export interface VideoPrice {
+  unit: 'second' | 'megapixel_second' | 'token' | 'image' | 'request'
+  /** К чему относится цена: звук, способ генерации, входная картинка и т. д.; null — базовая. */
+  variant: string | null
+  /** Разрешение результата; null — для разрешений без собственной строки. */
+  resolution: string | null
+  /** Рубли за единицу. */
+  price: number
 }
 
 export interface MediaTraits {
@@ -55,6 +68,10 @@ export interface MediaTraits {
   seed?: true
   /** Видео-модель принимает готовый ролик на входе (продление, правка, апскейл). */
   takesVideo?: true
+  /** Длительность входного видео прибавляется к оплачиваемой длительности результата. */
+  videoInputBilled?: true
+  /** Допустимая кратность увеличения у моделей апскейла. */
+  upscale?: { min: number; max: number }
   /** Модель работает только с готовым видео или аудио на входе (апскейл, аватары) — по одному описанию ролик не снимет. */
   needsSource?: true
 }
@@ -109,6 +126,25 @@ function tokenPrice(pricing: Bag, units: Bag): TokenPrice | undefined {
   return price
 }
 
+const VIDEO_UNITS: readonly VideoPrice['unit'][] = ['second', 'megapixel_second', 'token', 'image', 'request']
+
+/** Сетка цен видео-модели; строки с неизвестной единицей или без цены пропускаются. */
+function videoPrices(raw: unknown): VideoPrice[] {
+  if (!Array.isArray(raw)) return []
+  const rows: VideoPrice[] = []
+  for (const entry of raw.map(bag)) {
+    const unit = VIDEO_UNITS.find(candidate => candidate === entry['unit'])
+    const price = amount(entry['price'])
+    if (unit === undefined || price === undefined) continue
+    rows.push({
+      unit, price,
+      variant: typeof entry['variant'] === 'string' ? entry['variant'] : null,
+      resolution: typeof entry['resolution'] === 'string' ? entry['resolution'] : null,
+    })
+  }
+  return rows
+}
+
 /** Что каталог сообщает о возможностях модели для картинок или видео. */
 function mediaTraits(raw: Bag, architecture: Bag, makes: readonly Output[]): MediaTraits | undefined {
   if (!makes.includes('image') && !makes.includes('video')) return undefined
@@ -143,6 +179,11 @@ function mediaTraits(raw: Bag, architecture: Bag, makes: readonly Output[]): Med
     if (raw['generate_audio'] === true) traits.audio = true
     if (raw['seed'] === true) traits.seed = true
     if (strings(architecture['input_modalities']).includes('video')) traits.takesVideo = true
+    if (raw['video_input_billed'] === true) traits.videoInputBilled = true
+    const factor = bag(raw['upscale_factor'])
+    const least = amount(factor['min'])
+    const most = amount(factor['max'])
+    if (least !== undefined && most !== undefined && most >= least && least > 0) traits.upscale = { min: least, max: most }
     if (durations.length === 0 && frames.length === 0 && (sources.includes('video') || sources.includes('audio'))) traits.needsSource = true
   }
   return traits
@@ -195,6 +236,8 @@ export function readModelCard(entry: unknown): ModelCard | undefined {
   }
   const media = mediaTraits(raw, architecture, makes)
   if (media !== undefined) card.media = media
+  const videoPricing = videoPrices(raw['video_pricing'])
+  if (videoPricing.length > 0) card.videoPricing = videoPricing
   if (Array.isArray(raw['supported_durations'])) {
     const durations = (raw['supported_durations'] as unknown[]).filter((value): value is number => typeof value === 'number' && value > 0).sort((a, b) => a - b)
     if (durations.length > 0) card.durations = durations
@@ -227,7 +270,7 @@ export async function downloadModelList(apiBase: string, signal?: AbortSignal): 
 }
 
 interface Snapshot {
-  format: 6
+  format: 7
   source: string
   savedAt: number
   cards: ModelCard[]
@@ -235,10 +278,10 @@ interface Snapshot {
 
 function acceptSnapshot(raw: unknown): Snapshot | undefined {
   const value = bag(raw)
-  if (value['format'] !== 6 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
+  if (value['format'] !== 7 || typeof value['source'] !== 'string' || typeof value['savedAt'] !== 'number') return undefined
   if (!Array.isArray(value['cards'])) return undefined
   const cards = (value['cards'] as unknown[]).filter((card): card is ModelCard => isModelSlug(bag(card)['slug']) && Array.isArray(bag(card)['makes']))
-  return { format: 6, source: value['source'], savedAt: value['savedAt'], cards }
+  return { format: 7, source: value['source'], savedAt: value['savedAt'], cards }
 }
 
 export interface ModelCatalogOptions {
@@ -303,7 +346,7 @@ export class ModelCatalog {
       const cards = await this.download(this.options.apiBase)
       this.lastError = undefined
       this.adopt(cards, this.clock())
-      await this.disk?.write({ format: 6, source: this.options.apiBase, savedAt: this.stamp, cards })
+      await this.disk?.write({ format: 7, source: this.options.apiBase, savedAt: this.stamp, cards })
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
     }
