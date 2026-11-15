@@ -1,0 +1,435 @@
+// Раздел «RouterAI» в настройках harness: подключение, аккаунт, выбор моделей, дополнительные настройки.
+import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Button, Input, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { BILLING_PAGE } from '../links.ts'
+import { pricePair, rub, windowLabel } from '../money.ts'
+import { MODEL_SETS } from '../starter.ts'
+import { Icon, Logo } from './parts.tsx'
+import { openTab, useRemote } from './remote.ts'
+import type { CatalogEntry, Overview, Remote } from './remote.ts'
+import type { Translate } from './texts.ts'
+
+interface Shared {
+  t: Translate
+  remote: Remote
+}
+
+/** Выполнить действие и показать его ошибку рядом с кнопкой, а не потерять в консоли. */
+function useAction(): { busy: boolean; error: string | null; run: (action: () => Promise<unknown>) => void } {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const run = (action: () => Promise<unknown>) => {
+    setBusy(true)
+    setError(null)
+    action().catch((problem: unknown) => { setError(problem instanceof Error ? problem.message : String(problem)) }).finally(() => { setBusy(false) })
+  }
+  return { busy, error, run }
+}
+
+function Panel({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="rai-panel">
+      <h3>{title}</h3>
+      {hint === undefined ? null : <p className="rai-note">{hint}</p>}
+      {children}
+    </section>
+  )
+}
+
+function Connect({ t, remote, overview }: Shared & { overview: Overview }) {
+  const [draft, setDraft] = useState('')
+  const action = useAction()
+  const stage = overview.signIn
+  return (
+    <Panel title={t('connectTitle')} hint={stage.stage === 'waiting' ? t('connectWaiting') : t('connectHint')}>
+      {stage.stage === 'waiting'
+        ? (
+          <div className="rai-line">
+            <Button variant="outline" onClick={() => { openTab(stage.url) }}>{t('connectReopen')}</Button>
+            <Button variant="ghost" onClick={() => { action.run(remote.cancelSignIn) }}>{t('connectAbort')}</Button>
+          </div>
+        )
+        : (
+          <div className="rai-line">
+            <Button variant="primary" disabled={action.busy} onClick={() => { action.run(remote.signIn) }}>{t('connectButton')}</Button>
+          </div>
+        )}
+      <div className="rai-line">
+        <span className="rai-note">{t('pasteLabel')}</span>
+        <Input className="rai-fill" type="password" autoComplete="off" placeholder={t('pasteHolder')} value={draft} onChange={(event) => { setDraft(event.target.value) }} />
+        <Button variant="outline" disabled={action.busy || draft.trim() === ''} onClick={() => { action.run(() => remote.saveKey(draft.trim()).then(() => { setDraft('') })) }}>{t('pasteButton')}</Button>
+      </div>
+      {action.error !== null ? <p className="rai-alert">{action.error}</p> : stage.stage === 'failed' ? <p className="rai-alert">{stage.reason}</p> : null}
+    </Panel>
+  )
+}
+
+function Account({ t, remote, overview }: Shared & { overview: Overview }) {
+  const action = useAction()
+  const account = overview.account
+  const key = account?.key
+  const cap = key?.cap
+  return (
+    <section className="rai-panel" data-routerai="account">
+      <div className="rai-line">
+        <div className="rai-fill">
+          <h3 className="rai-clip" style={{ margin: 0, font: 'var(--dsw-font-s-strong-14)' }}>{key?.label || t('accountNoLabel')}</h3>
+          <span className="rai-faint">{overview.keyMask}</span>
+        </div>
+        <Button variant="outline" onClick={() => { openTab(BILLING_PAGE) }}>{t('addFunds')}</Button>
+        <Button variant="ghost" disabled={action.busy} onClick={() => { action.run(() => remote.pull(true)) }}>{t('reload')}</Button>
+        <Button variant="ghost" disabled={action.busy} onClick={() => { action.run(remote.signOut) }}>{t('disconnect')}</Button>
+      </div>
+      {account?.state === 'rejected' ? <p className="rai-alert">{t('keyRejected')}</p> : null}
+      {account?.state === 'offline' ? <p className="rai-caution">{t('offline')}</p> : null}
+      {key?.disabled ? <p className="rai-alert">{t('keyDisabled')}</p> : null}
+      <div className="rai-figures">
+        <div className="rai-figure rai-main">
+          <span className="rai-note">{t('balance')}</span>
+          <strong>{rub(account?.balance)}</strong>
+        </div>
+        <div className="rai-figure">
+          <span className="rai-note">{t('keyCap')}</span>
+          <strong>{cap === undefined ? t('keyCapNone') : rub(cap.left)}</strong>
+          {cap === undefined ? null : (
+            <>
+              <span className="rai-faint">{t('keyCapLeft', { amount: rub(cap.amount), period: t(`period_${cap.period}`) })}</span>
+              <div className="rai-gauge"><span style={{ width: `${Math.round(100 * Math.min(1, Math.max(0, 1 - cap.left / cap.amount)))}%` }} /></div>
+            </>
+          )}
+        </div>
+        <div className="rai-figure">
+          <span className="rai-note">{t('keySpent')}</span>
+          <strong>{rub(key?.spent ?? 0)}</strong>
+          <span className="rai-faint">{t('keySpentMonth', { amount: rub(key?.spentThisMonth ?? 0) })}</span>
+        </div>
+      </div>
+      {action.error !== null ? <p className="rai-alert">{action.error}</p> : null}
+    </section>
+  )
+}
+
+/** Подпись цены модели для картинок: за картинку — сумма, иначе — способ оплаты, потому что сумму заранее не назвать. */
+function imagePrice(t: Translate, entry: CatalogEntry): string {
+  if (entry.perImage !== undefined) return ` · ${t('perImage', { price: rub(entry.perImage) })}`
+  if (entry.media?.billedBy === 'token') return ` · ${t('billedByTokens')}`
+  if (entry.media?.billedBy === 'megapixel') return ` · ${t('billedByMegapixels')}`
+  return ''
+}
+
+/** Подпись цены видео-модели: минимальная цена секунды, а у апскейла — способ оплаты. */
+function videoPrice(t: Translate, entry: CatalogEntry): string {
+  if (entry.perSecond !== undefined) return ` · ${t('perSecond', { price: rub(entry.perSecond) })}`
+  return entry.videoPricing?.some(row => row.unit === 'megapixel_second') === true ? ` · ${t('billedByFrame')}` : ''
+}
+
+/** «Anthropic Claude Sonnet 5.5»; у моделей, чьё название уже начинается с производителя, он не повторяется. */
+function fullName(entry: CatalogEntry): string {
+  return entry.title.toLowerCase().startsWith(entry.maker.toLowerCase()) ? entry.title : `${entry.maker} ${entry.title}`
+}
+
+function modelFacts(entry: CatalogEntry): string {
+  return [entry.slug, pricePair(entry.price), windowLabel(entry.window)].filter(part => part !== '').join(' · ')
+}
+
+function Picker({ t, remote, overview, catalog }: Shared & { overview: Overview; catalog: CatalogEntry[] | null }) {
+  const saved = overview.picker.models
+  const savedKey = saved.join('|')
+  const [draft, setDraft] = useState<string[]>(saved)
+  const [search, setSearch] = useState('')
+  const [maker, setMaker] = useState('')
+  const [toolsOnly, setToolsOnly] = useState(true)
+  const [justApplied, setJustApplied] = useState(false)
+  const action = useAction()
+
+  // Список на сервере сменился (сохранили здесь или в другой вкладке) — черновик начинается с него.
+  useEffect(() => { setDraft(saved) }, [savedKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // В пикер идут только чат-модели; модели для картинок и речи выбираются в «Дополнительно».
+  const chat = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('text')), [catalog])
+  const bySlug = useMemo(() => new Map(chat.map(entry => [entry.slug, entry])), [chat])
+  const makers = useMemo(() => [...new Set(chat.map(entry => entry.maker))].sort((a, b) => a.localeCompare(b)), [chat])
+  const matches = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return chat.filter(entry =>
+      (maker === '' || entry.maker === maker)
+      && (!toolsOnly || entry.tools)
+      && (needle === '' || `${entry.slug} ${entry.maker} ${entry.title}`.toLowerCase().includes(needle)))
+  }, [chat, search, maker, toolsOnly])
+
+  const changed = draft.join('|') !== savedKey
+  const edit = (next: string[]) => { setJustApplied(false); setDraft(next) }
+  const shift = (from: number, to: number) => {
+    const next = [...draft]
+    next.splice(to, 0, ...next.splice(from, 1))
+    edit(next)
+  }
+  const toggle = (slug: string) => { edit(draft.includes(slug) ? draft.filter(item => item !== slug) : [...draft, slug]) }
+  const visible = matches.slice(0, 250)
+
+  return (
+    <Panel title={t('pickerTitle')} hint={t('pickerHint')}>
+      {draft.length === 0
+        ? <p className="rai-note">{t('pickerEmpty')}</p>
+        : (
+          <div className="rai-rows" data-routerai="picked">
+            {draft.map((slug, position) => {
+              const entry = bySlug.get(slug)
+              return (
+                <div className="rai-row" key={slug}>
+                  <span className="rai-order">{position + 1}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="rai-clip">{entry === undefined ? slug : fullName(entry)}</div>
+                    <div className="rai-faint rai-clip">{entry === undefined ? (catalog === null ? slug : `${slug} · ${t('pickerUnknown')}`) : modelFacts(entry)}</div>
+                  </div>
+                  <div className="rai-tools">
+                    <button type="button" title={t('moveUp')} aria-label={t('moveUp')} disabled={position === 0} onClick={() => { shift(position, position - 1) }}><Icon glyph="up" /></button>
+                    <button type="button" title={t('moveDown')} aria-label={t('moveDown')} disabled={position === draft.length - 1} onClick={() => { shift(position, position + 1) }}><Icon glyph="down" /></button>
+                    <button type="button" title={t('drop')} aria-label={t('drop')} onClick={() => { toggle(slug) }}><Icon glyph="cross" /></button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      <div className="rai-line">
+        <Button variant="primary" disabled={!changed || action.busy} onClick={() => { action.run(() => remote.savePreferences({ models: draft }).then(() => { setJustApplied(true) })) }}>{t('apply')}</Button>
+        {changed ? <Button variant="ghost" onClick={() => { edit(saved) }}>{t('revert')}</Button> : null}
+        {justApplied && !changed ? <span className="rai-note" role="status">{t('applied')}</span> : null}
+        {action.error !== null ? <span className="rai-alert">{action.error}</span> : null}
+      </div>
+      <div className="rai-line">
+        <span className="rai-note">{t('sets')}:</span>
+        {MODEL_SETS.map(set => (
+          <Button key={set.key} variant="outline" size="sm" disabled={catalog === null}
+            onClick={() => { edit(set.models.filter(slug => bySlug.has(slug))) }}>
+            {t(`set_${set.key}`)}
+          </Button>
+        ))}
+      </div>
+
+      <h3 style={{ margin: '6px 0 0', font: 'var(--dsw-font-s-strong-14)' }}>{t('catalogTitle')}</h3>
+      <div className="rai-line">
+        <Input className="rai-fill" placeholder={t('catalogSearch')} value={search} onChange={(event) => { setSearch(event.target.value) }} />
+        <select className="rai-choice" value={maker} aria-label={t('catalogAnyMaker')} onChange={(event) => { setMaker(event.target.value) }}>
+          <option value="">{t('catalogAnyMaker')}</option>
+          {makers.map(item => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </div>
+      <div className="rai-line">
+        <label className="rai-line rai-note" style={{ cursor: 'pointer' }}>
+          <input type="checkbox" checked={toolsOnly} onChange={(event) => { setToolsOnly(event.target.checked) }} />
+          {t('catalogToolsOnly')}
+        </label>
+        <span className="rai-faint" style={{ marginLeft: 'auto' }}>
+          {catalog === null ? t('catalogLoading') : t('catalogShown', { shown: visible.length, total: matches.length })}
+        </span>
+      </div>
+      <div className="rai-rows rai-tall" data-routerai="catalog">
+        {visible.map(entry => (
+          <label className="rai-row" key={entry.slug}>
+            <input type="checkbox" checked={draft.includes(entry.slug)} onChange={() => { toggle(entry.slug) }} />
+            <div style={{ minWidth: 0 }}>
+              <div className="rai-clip">{fullName(entry)}</div>
+              <div className="rai-faint rai-clip">{modelFacts(entry)}</div>
+            </div>
+            <div className="rai-line">
+              {entry.alias ? <Tag tone="quiet">{t('tagAlias')}</Tag> : null}
+              {entry.reasoning ? <Tag tone="quiet">{t('tagReasoning')}</Tag> : null}
+              {entry.vision ? <Tag tone="quiet">{t('tagVision')}</Tag> : null}
+              {entry.tools ? null : <Tag tone="warning">{t('tagNoTools')}</Tag>}
+            </div>
+          </label>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+/** Модели, которые агент может выбрать вместо основной: список с удалением и добавлением из каталога. */
+function Choices({ t, name, main, chosen, pool, label, save }: {
+  t: Translate
+  name: string
+  main: string
+  chosen: readonly string[]
+  pool: CatalogEntry[]
+  label(entry: CatalogEntry): string
+  save(models: string[]): void
+}) {
+  const bySlug = new Map(pool.map(entry => [entry.slug, entry]))
+  const free = pool.filter(entry => entry.slug !== main && !chosen.includes(entry.slug))
+  return (
+    <div style={{ display: 'grid', gap: 6 }} data-routerai={name}>
+      <span className="rai-note">{t('choicesLabel')}</span>
+      {chosen.length === 0 ? null : (
+        <div className="rai-rows">
+          {chosen.map((slug) => {
+            const entry = bySlug.get(slug)
+            return (
+              <div className="rai-row" key={slug} style={{ gridTemplateColumns: '1fr auto' }}>
+                <span className="rai-clip">{entry === undefined ? slug : label(entry)}</span>
+                <div className="rai-tools">
+                  <button type="button" title={t('choicesRemove', { name: slug })} aria-label={t('choicesRemove', { name: slug })} onClick={() => { save(chosen.filter(item => item !== slug)) }}><Icon glyph="cross" /></button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <select className="rai-choice" value="" aria-label={t('choicesAdd')} onChange={(event) => { if (event.target.value !== '') save([...chosen, event.target.value]) }}>
+        <option value="">{t('choicesAdd')}</option>
+        {free.map(entry => <option key={entry.slug} value={entry.slug}>{label(entry)}</option>)}
+      </select>
+      <span className="rai-faint">{t('choicesHint')}</span>
+    </div>
+  )
+}
+
+function Extras({ t, remote, overview, catalog }: Shared & { overview: Overview; catalog: CatalogEntry[] | null }) {
+  const [threshold, setThreshold] = useState(String(overview.lowBalance))
+  const action = useAction()
+  const cheapestFirst = useMemo(() => (catalog ?? [])
+    .filter(entry => entry.makes.includes('text') && entry.tools && entry.price !== undefined && !entry.alias)
+    .sort((a, b) => (a.price?.input ?? 0) - (b.price?.input ?? 0)), [catalog])
+  const current = overview.utilityModel
+  const painters = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('image'))
+    .sort((a, b) => (a.perImage ?? Infinity) - (b.perImage ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const listeners = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('transcription'))
+    .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  // Модели, которым нужно готовое видео или аудио (апскейл, аватары), ролик по описанию не снимут — их не предлагаем.
+  const directors = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('video') && entry.media?.needsSource !== true)
+    .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const [budget, setBudget] = useState(String(overview.videoBudget))
+  const commitBudget = () => {
+    const value = Number(budget.replace(',', '.'))
+    if (Number.isFinite(value) && value > 0) action.run(() => remote.savePreferences({ videoBudget: value }))
+    else setBudget(String(overview.videoBudget))
+  }
+  // Для выбора агентом годятся и модели, которым нужен готовый ролик: агент передаст его сам.
+  const anyDirectors = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('video'))
+    .sort((a, b) => (a.perSecond ?? Infinity) - (b.perSecond ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const voices = useMemo(() => (catalog ?? []).filter(entry => entry.makes.includes('speech'))
+    .sort((a, b) => (a.price?.input ?? Infinity) - (b.price?.input ?? Infinity) || a.title.localeCompare(b.title)), [catalog])
+  const [voice, setVoice] = useState(overview.voice)
+  const commitVoice = () => {
+    if (voice.trim() !== '' && voice.trim() !== overview.voice) action.run(() => remote.savePreferences({ voice: voice.trim() }))
+    else setVoice(overview.voice)
+  }
+  const known = (list: CatalogEntry[], slug: string | null) => slug === null || list.some(entry => entry.slug === slug)
+  const commitThreshold = () => {
+    const value = Number(threshold.replace(',', '.'))
+    if (Number.isFinite(value) && value >= 0) action.run(() => remote.savePreferences({ lowBalance: value }))
+    else setThreshold(String(overview.lowBalance))
+  }
+  return (
+    <Panel title={t('extrasTitle')}>
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('utilityLabel')}</span>
+        <select className="rai-choice" value={current ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ utilityModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('utilityOff')}</option>
+          {current !== null && !cheapestFirst.some(entry => entry.slug === current) ? <option value={current}>{current}</option> : null}
+          {cheapestFirst.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)} · {pricePair(entry.price)}</option>)}
+        </select>
+        <span className="rai-note">{t('utilityHint')}</span>
+      </label>
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('imageLabel')}</span>
+        <select className="rai-choice" data-routerai="image-model" value={overview.imageModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ imageModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('imageOff')}</option>
+          {known(painters, overview.imageModel) ? null : <option value={overview.imageModel ?? ''}>{overview.imageModel}</option>}
+          {painters.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{imagePrice(t, entry)}</option>)}
+        </select>
+        <span className="rai-note">{t('imageHint')}</span>
+      </label>
+      {overview.imageModel === null ? null : (
+        <Choices t={t} name="image-choices" main={overview.imageModel} chosen={overview.imageChoices} pool={painters}
+          label={entry => `${fullName(entry)}${imagePrice(t, entry)}`}
+          save={models => { action.run(() => remote.savePreferences({ imageChoices: models })) }} />
+      )}
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('videoLabel')}</span>
+        <select className="rai-choice" data-routerai="video-model" value={overview.videoModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ videoModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('videoOff')}</option>
+          {known(directors, overview.videoModel) ? null : <option value={overview.videoModel ?? ''}>{overview.videoModel}</option>}
+          {directors.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{videoPrice(t, entry)}</option>)}
+        </select>
+        <span className="rai-note">{t('videoHint')}</span>
+      </label>
+      {overview.videoModel === null ? null : (
+        <Choices t={t} name="video-choices" main={overview.videoModel} chosen={overview.videoChoices} pool={anyDirectors}
+          label={entry => `${fullName(entry)}${videoPrice(t, entry)}${entry.media?.needsSource === true ? ` · ${t('needsSource')}` : ''}`}
+          save={models => { action.run(() => remote.savePreferences({ videoChoices: models })) }} />
+      )}
+      {overview.videoModel === null ? null : (
+        <label className="rai-line">
+          <span className="rai-fill">{t('videoBudgetLabel')}</span>
+          <Input style={{ width: 96 }} inputMode="decimal" data-routerai="video-budget" value={budget} onChange={(event) => { setBudget(event.target.value) }} onBlur={commitBudget} />
+          <span>₽</span>
+        </label>
+      )}
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('voiceLabel')}</span>
+        <select className="rai-choice" data-routerai="voice-model" value={overview.voiceModel ?? ''} onChange={(event) => { action.run(() => remote.savePreferences({ voiceModel: event.target.value === '' ? null : event.target.value })) }}>
+          <option value="">{t('voiceOff')}</option>
+          {known(voices, overview.voiceModel) ? null : <option value={overview.voiceModel ?? ''}>{overview.voiceModel}</option>}
+          {voices.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.price === undefined || entry.price.input === 0 ? '' : ` · ${t('perThousand', { price: rub(entry.price.input / 1000) })}`}</option>)}
+        </select>
+        <span className="rai-note">{t('voiceHint')}</span>
+      </label>
+      {overview.voiceModel === null ? null : (
+        <label className="rai-line">
+          <span className="rai-fill">{t('voiceNameLabel')}<br /><span className="rai-faint">{t('voiceNameHint')}</span></span>
+          <Input style={{ width: 200 }} data-routerai="voice-name" value={voice} onChange={(event) => { setVoice(event.target.value) }} onBlur={commitVoice} />
+        </label>
+      )}
+      <label style={{ display: 'grid', gap: 6 }}>
+        <span>{t('speechLabel')}</span>
+        <select className="rai-choice" data-routerai="speech-model" value={overview.speechModel} onChange={(event) => { action.run(() => remote.savePreferences({ speechModel: event.target.value })) }}>
+          {known(listeners, overview.speechModel) ? null : <option value={overview.speechModel}>{overview.speechModel}</option>}
+          {listeners.map(entry => <option key={entry.slug} value={entry.slug}>{fullName(entry)}{entry.perSecond === undefined ? '' : ` · ${t('perMinute', { price: rub(entry.perSecond * 60) })}`}</option>)}
+        </select>
+        <span className="rai-note">{t('speechHint')}</span>
+      </label>
+      <label className="rai-line">
+        <span className="rai-fill">{t('lowBalanceLabel')}</span>
+        <Input style={{ width: 96 }} inputMode="decimal" value={threshold} onChange={(event) => { setThreshold(event.target.value) }} onBlur={commitThreshold} />
+        <span>₽</span>
+      </label>
+      {action.error !== null ? <p className="rai-alert">{action.error}</p> : null}
+    </Panel>
+  )
+}
+
+export function SettingsPage({ t, remote }: Shared) {
+  const { overview, failure } = useRemote(remote)
+  const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
+  const [catalogFailure, setCatalogFailure] = useState<string | null>(null)
+  useEffect(() => {
+    let current = true
+    remote.catalog().then(
+      (entries) => { if (current) setCatalog(entries) },
+      (problem: unknown) => { if (current) setCatalogFailure(problem instanceof Error ? problem.message : String(problem)) },
+    )
+    return () => { current = false }
+  }, [remote])
+
+  return (
+    <div className="rai-page">
+      <header className="rai-head">
+        <Logo size={40} />
+        <h2>{t('heading')}</h2>
+        <p>{t('lead')}</p>
+      </header>
+      {failure !== null ? <p className="rai-alert">{failure}</p> : null}
+      {overview === null ? null : (
+        <>
+          {overview.connected ? <Account t={t} remote={remote} overview={overview} /> : <Connect t={t} remote={remote} overview={overview} />}
+          <Picker t={t} remote={remote} overview={overview} catalog={catalog} />
+          {catalogFailure !== null ? <p className="rai-alert">{catalogFailure}</p> : null}
+          <Extras t={t} remote={remote} overview={overview} catalog={catalog} />
+        </>
+      )}
+    </div>
+  )
+}

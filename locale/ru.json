@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "RouterAI",
+    "description": "Провайдер моделей RouterAI: Claude, GPT, Gemini, DeepSeek, Qwen и сотни других по одному ключу, оплата в рублях. Вход через браузер, баланс и стоимость сессии прямо в приложении.",
+    "detail": "docs/DETAIL.ru.md"
+  }
+}

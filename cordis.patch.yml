@@ -1,0 +1,10 @@
+# Что этот пакет добавляет в профиль DeepSeek Harness при установке:
+# плагин llm-routerai — маршрут `routerai`, раздел настроек и команда /routerai.
+#
+# Изменить его параметры можно в ~/.dsh/profiles/<профиль>/cordis.patch.yml, например:
+#   - id: llm-routerai
+#     config:
+#       models: [anthropic/claude-sonnet-5.5, deepseek/deepseek-v4.1-flash]
+- insert:
+    - id: llm-routerai
+      name: '@router-ai/dsh-plugin-routerai'
