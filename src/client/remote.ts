@@ -1,8 +1,8 @@
 // Связь браузерной части с серверной (/api/routerai/…) и общее состояние для всех элементов интерфейса.
 import { useSyncExternalStore } from 'react'
-import type { CatalogEntry, Overview, SessionCostView } from '../bridge.ts'
+import type { CatalogEntry, Overview, SessionCostView, SignInStart, WaitingSignIn } from '../bridge.ts'
 
-export type { CatalogEntry, Overview, SessionCostView }
+export type { CatalogEntry, Overview, SessionCostView, WaitingSignIn }
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
   // Адрес считается от document.baseURI: harness может быть открыт не из корня сайта.
@@ -73,15 +73,36 @@ export class Remote {
   }
 
   /**
-   * В десктопном приложении страницу согласия открывает само окно: его window.open уходит в системный браузер.
-   * В веб-версии браузер запускает сервер harness — всплывающее окно после запроса браузер мог бы заблокировать.
+   * Начать вход и открыть страницу согласия. Вкладка открывается сразу, по нажатию, а адрес получает позже:
+   * окно, открытое после ожидания ответа, браузер заблокировал бы как всплывающее.
+   * `byCode` — пользователь сам выбрал вход по коду.
    */
-  signIn = async (): Promise<void> => {
-    const embedded = !/^https?:$/u.test(window.location.protocol)
-    const reply = await request<{ url: string }>('sign-in', embedded ? { browser: 'client' } : {})
-    if (embedded) openTab(reply.url)
-    await this.pull(false)
+  signIn = async (byCode = false): Promise<void> => {
+    const tab = embedded() ? null : window.open('', '_blank')
+    try {
+      // Интерфейс открыт с другой машины — локальный приёмник плагина браузеру заведомо не виден.
+      const start = await request<SignInStart>('sign-in', { receiver: !byCode && onThisMachine() })
+      let target = start.url
+      if (target === null || byCode || !(embedded() || await receiverVisible(start))) {
+        await request('sign-in/by-code', {})
+        target = start.codeUrl
+      }
+      show(tab, target)
+    } catch (error) {
+      tab?.close()
+      throw error
+    } finally {
+      await this.pull(false)
+    }
   }
+
+  /** Приёмник не помог (страница возврата не открылась) — перейти на вход по коду в уже начатой попытке. */
+  useCode = async (codeUrl: string): Promise<void> => {
+    openTab(codeUrl)
+    await this.act('sign-in/by-code', {}, false)
+  }
+
+  submitCode = (value: string) => this.act('sign-in/code', { value })
   cancelSignIn = () => this.act('sign-in/cancel', {}, false)
   signOut = () => this.act('sign-out', {})
   saveKey = (key: string) => this.act('key', { key })
@@ -105,4 +126,42 @@ export function useRemote(remote: Remote): View {
 
 export function openTab(url: string): void {
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+/** Десктопное приложение: страница загружена не по http(s), ссылки оно отдаёт системному браузеру. */
+function embedded(): boolean {
+  return !/^https?:$/u.test(window.location.protocol)
+}
+
+/** Интерфейс открыт по локальному адресу — приёмник плагина может быть виден браузеру. */
+function onThisMachine(): boolean {
+  return embedded() || ['localhost', '127.0.0.1', '[::1]', '::1'].includes(window.location.hostname)
+}
+
+const PING_LIMIT_MS = 2000
+
+/**
+ * Достаёт ли браузер до локального приёмника плагина. Когда harness работает в контейнере или на другой машине,
+ * интерфейс всё равно может быть открыт по 127.0.0.1 (проброшен только его порт), а приёмник — нет.
+ * Сверяется метка попытки: на этом порту у пользователя может слушать посторонняя программа.
+ */
+async function receiverVisible(start: SignInStart): Promise<boolean> {
+  if (start.port === null) return false
+  try {
+    const response = await fetch(`http://127.0.0.1:${start.port}/routerai/ping`, { cache: 'no-store', signal: AbortSignal.timeout(PING_LIMIT_MS) })
+    const reply = await response.json() as { attempt?: unknown }
+    return reply.attempt === start.attempt
+  } catch {
+    return false
+  }
+}
+
+/** Загрузить адрес в заранее открытую вкладку; если её нет или её заблокировали — открыть обычным способом. */
+function show(tab: Window | null, url: string): void {
+  if (tab === null || tab.closed) {
+    openTab(url)
+    return
+  }
+  tab.opener = null
+  tab.location.replace(url)
 }

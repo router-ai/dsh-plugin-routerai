@@ -7,24 +7,13 @@ import { pricePair, rub, windowLabel } from '../money.ts'
 import { MODEL_SETS } from '../starter.ts'
 import { Icon, Logo } from './parts.tsx'
 import { openTab, useRemote } from './remote.ts'
+import { SignIn, useAction } from './SignIn.tsx'
 import type { CatalogEntry, Overview, Remote } from './remote.ts'
 import type { Translate } from './texts.ts'
 
 interface Shared {
   t: Translate
   remote: Remote
-}
-
-/** Выполнить действие и показать его ошибку рядом с кнопкой, а не потерять в консоли. */
-function useAction(): { busy: boolean; error: string | null; run: (action: () => Promise<unknown>) => void } {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const run = (action: () => Promise<unknown>) => {
-    setBusy(true)
-    setError(null)
-    action().catch((problem: unknown) => { setError(problem instanceof Error ? problem.message : String(problem)) }).finally(() => { setBusy(false) })
-  }
-  return { busy, error, run }
 }
 
 function Panel({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
@@ -40,27 +29,15 @@ function Panel({ title, hint, children }: { title: string; hint?: string; childr
 function Connect({ t, remote, overview }: Shared & { overview: Overview }) {
   const [draft, setDraft] = useState('')
   const action = useAction()
-  const stage = overview.signIn
   return (
-    <Panel title={t('connectTitle')} hint={stage.stage === 'waiting' ? t('connectWaiting') : t('connectHint')}>
-      {stage.stage === 'waiting'
-        ? (
-          <div className="rai-line">
-            <Button variant="outline" onClick={() => { openTab(stage.url) }}>{t('connectReopen')}</Button>
-            <Button variant="ghost" onClick={() => { action.run(remote.cancelSignIn) }}>{t('connectAbort')}</Button>
-          </div>
-        )
-        : (
-          <div className="rai-line">
-            <Button variant="primary" disabled={action.busy} onClick={() => { action.run(remote.signIn) }}>{t('connectButton')}</Button>
-          </div>
-        )}
+    <Panel title={t('connectTitle')}>
+      <SignIn t={t} remote={remote} overview={overview} />
       <div className="rai-line">
         <span className="rai-note">{t('pasteLabel')}</span>
         <Input className="rai-fill" type="password" autoComplete="off" placeholder={t('pasteHolder')} value={draft} onChange={(event) => { setDraft(event.target.value) }} />
         <Button variant="outline" disabled={action.busy || draft.trim() === ''} onClick={() => { action.run(() => remote.saveKey(draft.trim()).then(() => { setDraft('') })) }}>{t('pasteButton')}</Button>
       </div>
-      {action.error !== null ? <p className="rai-alert">{action.error}</p> : stage.stage === 'failed' ? <p className="rai-alert">{stage.reason}</p> : null}
+      {action.error !== null ? <p className="rai-alert">{action.error}</p> : null}
     </Panel>
   )
 }

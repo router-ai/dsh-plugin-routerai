@@ -8,6 +8,7 @@ import type { ModelCard, ModelCatalog } from './catalog.ts'
 import { BILLING_PAGE, KEYS_PAGE } from './links.ts'
 import { pricePair, rub, windowLabel } from './money.ts'
 import { openBrowser, startSignIn } from './signin.ts'
+import type { PendingSignIn } from './signin.ts'
 
 export interface SlashDeps {
   apiBase: string
@@ -17,10 +18,15 @@ export interface SlashDeps {
   forgetKey(): Promise<void>
   pickerModels(): readonly string[]
   catalog: ModelCatalog
+  signInPort?: number
+  signInHost?: string
+  /** Открыть адрес в браузере; `false` — открыть нечем. По умолчанию — системный браузер. */
+  openBrowser?(url: string): Promise<boolean>
 }
 
 const USAGE = `Команда /routerai:
   login            войти через routerai.ru — ключ выдаст сайт
+  code <код>       завершить вход кодом со страницы RouterAI (когда браузер на другой машине)
   key sk-…         сохранить ключ, созданный вручную
   logout           удалить сохранённый ключ
   status           баланс аккаунта и состояние ключа
@@ -58,16 +64,43 @@ export function registerSlashCommand(ctx: Context, deps: SlashDeps): void {
   const good = (text: string): CommandResult => ({ kind: 'success', text })
   const bad = (text: string): CommandResult => ({ kind: 'error', text })
 
+  /** Вход, который ждёт код от пользователя: между командами `login`/`code` и `code <код>`. */
+  let byCode: PendingSignIn | undefined
+
+  function awaitCode(attempt: PendingSignIn): CommandResult {
+    byCode?.cancel()
+    byCode = attempt
+    attempt.key.catch(() => {}).finally(() => { if (byCode === attempt) byCode = undefined })
+    return good(`Откройте в браузере страницу входа и подтвердите доступ:\n${attempt.codeUrl}\n\nRouterAI покажет код. Вставьте его сюда: /routerai code <код>\nКод действует 5 минут.`)
+  }
+
+  async function signedIn(key: string): Promise<CommandResult> {
+    await deps.storeKey(key)
+    return good(`Вы вошли в RouterAI, ключ сохранён как ${deps.credentialName}.\n${accountReport(await loadAccount(deps.apiBase, key))}`)
+  }
+
   async function run(verb: string, argument: string, signal: AbortSignal): Promise<CommandResult> {
     switch (verb) {
       case 'login': {
-        const attempt = await startSignIn(deps.apiBase)
+        byCode?.cancel()
+        byCode = undefined
+        const attempt = await startSignIn(deps.apiBase, {
+          ...deps.signInPort === undefined ? {} : { port: deps.signInPort },
+          ...deps.signInHost === undefined ? {} : { host: deps.signInHost },
+        })
+        // Браузера на этой машине может не быть (контейнер, SSH) — тогда вход завершается кодом.
+        if (attempt.url === null || !(await (deps.openBrowser ?? openBrowser)(attempt.url))) return awaitCode(attempt)
         signal.addEventListener('abort', attempt.cancel, { once: true })
-        openBrowser(attempt.url)
         ctx.logger.info(`[routerai] страница входа: ${attempt.url}`)
-        const key = await attempt.key
-        await deps.storeKey(key)
-        return good(`Вы вошли в RouterAI, ключ сохранён как ${deps.credentialName}.\n${accountReport(await loadAccount(deps.apiBase, key))}`)
+        return signedIn(await attempt.key)
+      }
+      case 'code': {
+        if (argument === '') return awaitCode(await startSignIn(deps.apiBase, { receiver: false }))
+        const attempt = byCode
+        if (attempt === undefined) return bad('Вход по коду не начат. Выполните /routerai code без кода — команда даст ссылку.')
+        await attempt.submit(argument)
+        byCode = undefined
+        return signedIn(await attempt.key)
       }
       case 'key': {
         if (!looksLikeApiKey(argument)) return bad(`Нужен ключ RouterAI вида sk-… Создать его можно на ${KEYS_PAGE}`)
@@ -108,7 +141,7 @@ export function registerSlashCommand(ctx: Context, deps: SlashDeps): void {
   ctx.commands.register({
     name: 'routerai',
     description: 'RouterAI: вход, баланс, модели',
-    input: { hint: 'login | key sk-… | logout | status | models | find <текст>' },
+    input: { hint: 'login | code <код> | key sk-… | logout | status | models | find <текст>' },
     // В аргументах бывает ключ — в журнал сессии строка не попадает.
     recordInput: false,
     handler: async ({ rawInput, signal }) => {

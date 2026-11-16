@@ -5,6 +5,7 @@ import { BILLING_PAGE } from '../links.ts'
 import { rub } from '../money.ts'
 import { Logo } from './parts.tsx'
 import { openTab, useRemote } from './remote.ts'
+import { SignIn } from './SignIn.tsx'
 import type { Remote } from './remote.ts'
 import type { Translate } from './texts.ts'
 
@@ -19,8 +20,6 @@ export function SidebarBalance({ t, remote, wide }: { t: Translate; remote: Remo
   const cap = overview.account?.key?.cap
   const classes = ['rai-side', wide ? '' : 'rai-compact', running ? 'rai-warn' : ''].join(' ').trim()
 
-  const waitingUrl = overview.signIn.stage === 'waiting' ? overview.signIn.url : undefined
-
   return (
     <>
       <button type="button" className={classes} data-routerai="sidebar-balance" title={t('sidebarTitle')}
@@ -30,11 +29,7 @@ export function SidebarBalance({ t, remote, wide }: { t: Translate; remote: Remo
         {wide ? <b>{overview.connected ? rub(balance) : t('sidebarConnect')}</b> : null}
       </button>
       <Modal open={shown} onClose={() => { setShown(false) }} title={t('sidebarTitle')} closeLabel={t('close')}
-        footer={overview.connected
-          ? <Button variant="primary" onClick={() => { openTab(BILLING_PAGE) }}>{t('addFunds')}</Button>
-          : waitingUrl !== undefined
-            ? <Button variant="outline" onClick={() => { openTab(waitingUrl) }}>{t('connectReopen')}</Button>
-            : <Button variant="primary" onClick={() => { void remote.signIn() }}>{t('connectButton')}</Button>}>
+        footer={overview.connected ? <Button variant="primary" onClick={() => { openTab(BILLING_PAGE) }}>{t('addFunds')}</Button> : undefined}>
         <div style={{ display: 'grid', gap: 12 }}>
           {overview.problem !== null ? <p className="rai-alert">{overview.problem.text}</p> : running ? <p className="rai-caution">{t('sidebarLow')}</p> : null}
           {overview.connected
@@ -51,7 +46,7 @@ export function SidebarBalance({ t, remote, wide }: { t: Translate; remote: Remo
                 </div>
               </div>
             )
-            : <p className="rai-note">{waitingUrl !== undefined ? t('connectWaiting') : t('connectHint')}</p>}
+            : <SignIn t={t} remote={remote} overview={overview} />}
           <span className="rai-faint">{t('sidebarHint')}</span>
         </div>
       </Modal>

@@ -13,6 +13,7 @@ const SHEET = `
 .rai-faint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}
 .rai-alert{margin:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-state-error-primary)}
 .rai-caution{margin:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-state-warn-label)}
+.rai-steps{display:grid;gap:10px}
 .rai-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .rai-line>.rai-fill{flex:1 1 160px;min-width:0}
 .rai-clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

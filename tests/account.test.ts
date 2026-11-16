@@ -5,7 +5,8 @@ import type { BridgeEndpoint } from '../src/bridge.ts'
 import { ModelCatalog } from '../src/catalog.ts'
 import { CostBook } from '../src/costs.ts'
 import { PreferenceStore } from '../src/preferences.ts'
-import { browserLauncher, consentUrl, newChallenge, startSignIn } from '../src/signin.ts'
+import { createServer } from 'node:net'
+import { browserLauncher, consentUrl, newChallenge, readPastedCode, startSignIn } from '../src/signin.ts'
 import { accountReport } from '../src/slash.ts'
 import { sampleCards, scratchDir, sendJson, stubServer } from './helpers.ts'
 
@@ -15,9 +16,10 @@ const GOOD = 'sk-good-key-0000000000000000'
 async function routerai(limit = 100) {
   const stub = await stubServer((exchange, response) => {
     if (exchange.path === '/api/v1/auth/keys') {
+      const refusals: Record<string, string> = { 'old-code': 'Код авторизации истёк', 'spent-code': 'Код авторизации уже использован', 'foreign-code': 'Невалидный code_verifier' }
       return exchange.body.code === 'valid-code'
         ? sendJson(response, 200, { key: 'sk-issued-by-consent-page-0001' })
-        : sendJson(response, 400, { error: 'invalid_grant', error_description: 'Невалидный код авторизации' })
+        : sendJson(response, 400, { error: 'invalid_grant', error_description: refusals[exchange.body.code] ?? 'Невалидный код авторизации' })
     }
     if (exchange.headers.authorization !== `Bearer ${GOOD}`) return sendJson(response, 401, { error: '401 Unauthorized' })
     if (exchange.path === '/api/v1/credits') return sendJson(response, 200, { data: { credits: 1073.22 } })
@@ -90,7 +92,7 @@ describe('вход через браузер', () => {
   it('после подтверждения меняет код на ключ', async () => {
     const { apiBase, seen } = await routerai()
     const attempt = await startSignIn(apiBase)
-    const consent = new URL(attempt.url).searchParams
+    const consent = new URL(attempt.url!).searchParams
     const back = new URL(consent.get('callback_url')!)
     back.search = new URLSearchParams({ code: 'valid-code', state: consent.get('state')!, iss: 'https://routerai.ru' }).toString()
     const page = await fetch(back)
@@ -106,7 +108,7 @@ describe('вход через браузер', () => {
     const { apiBase, seen } = await routerai()
     const attempt = await startSignIn(apiBase)
     const outcome = attempt.key.then(() => 'ключ', (error: Error) => error.message)
-    const back = new URL(new URL(attempt.url).searchParams.get('callback_url')!)
+    const back = new URL(new URL(attempt.url!).searchParams.get('callback_url')!)
     back.search = '?code=valid-code&state=forged'
     expect((await fetch(back)).status).toBe(400)
     expect(await outcome).toContain('не относится к начатому входу')
@@ -118,16 +120,112 @@ describe('вход через браузер', () => {
     const finish = async (query: (state: string) => string) => {
       const attempt = await startSignIn(apiBase)
       const outcome = attempt.key.then(() => 'ключ', (error: Error) => error.message)
-      const consent = new URL(attempt.url).searchParams
+      const consent = new URL(attempt.url!).searchParams
       await fetch(`${consent.get('callback_url')}?${query(consent.get('state')!)}`)
       return outcome
     }
     expect(await finish(state => `error=access_denied&state=${state}`)).toContain('отклонили доступ')
-    expect(await finish(state => `code=stale&state=${state}`)).toContain('Невалидный код авторизации')
+    expect(await finish(state => `code=stale&state=${state}`)).toContain('RouterAI не узнал этот код')
 
     const cancelled = await startSignIn(apiBase)
     cancelled.cancel()
     await expect(cancelled.key).rejects.toThrow('Вход отменён')
+  })
+})
+
+describe('вход по коду', () => {
+  const exchanges = (seen: { path: string; body: any }[]) => seen.filter(item => item.path === '/api/v1/auth/keys')
+
+  it('без приёмника страница согласия открывается без адреса возврата, код меняется без него', async () => {
+    const { apiBase, seen } = await routerai()
+    const attempt = await startSignIn(apiBase, { receiver: false })
+    expect(attempt.url).toBeNull()
+    expect(attempt.port).toBeNull()
+    const consent = new URL(attempt.codeUrl).searchParams
+    expect(consent.get('callback_url')).toBeNull()
+    expect(consent.get('code_challenge')).toHaveLength(43)
+    await attempt.submit('  valid-code \n')
+    expect(await attempt.key).toBe('sk-issued-by-consent-page-0001')
+    expect(exchanges(seen)[0]!.body).toMatchObject({ code: 'valid-code', code_challenge_method: 'S256' })
+    expect(exchanges(seen)[0]!.body).not.toHaveProperty('callback_url')
+  })
+
+  it('обе страницы согласия одной попытки несут один и тот же code_challenge', async () => {
+    const { apiBase } = await routerai()
+    const attempt = await startSignIn(apiBase)
+    expect(new URL(attempt.codeUrl).searchParams.get('code_challenge')).toBe(new URL(attempt.url!).searchParams.get('code_challenge'))
+    attempt.cancel()
+  })
+
+  it('вставленный адрес возврата: код меняется с адресом приёмника, чужая метка отклоняется без запроса', async () => {
+    const { apiBase, seen } = await routerai()
+    const attempt = await startSignIn(apiBase)
+    const consent = new URL(attempt.url!).searchParams
+    const back = consent.get('callback_url')!
+    await expect(attempt.submit(`${back}?code=valid-code&state=forged`)).rejects.toThrow('другой попытке входа')
+    expect(exchanges(seen)).toHaveLength(0)
+    await attempt.submit(`${back}?code=valid-code&state=${consent.get('state')}`)
+    expect(await attempt.key).toBe('sk-issued-by-consent-page-0001')
+    expect(exchanges(seen)[0]!.body).toMatchObject({ code: 'valid-code', callback_url: back })
+  })
+
+  it('отказ в обмене объясняется понятно и не завершает попытку', async () => {
+    const { apiBase } = await routerai()
+    const attempt = await startSignIn(apiBase, { receiver: false })
+    await expect(attempt.submit('typo')).rejects.toThrow('RouterAI не узнал этот код')
+    await expect(attempt.submit('old-code')).rejects.toThrow('Код устарел')
+    await expect(attempt.submit('spent-code')).rejects.toThrow('уже использован')
+    await expect(attempt.submit('foreign-code')).rejects.toThrow('другой попытки входа')
+    await attempt.submit('valid-code')
+    expect(await attempt.key).toBe('sk-issued-by-consent-page-0001')
+  })
+
+  it('один и тот же код не уходит в RouterAI дважды', async () => {
+    const { apiBase, seen } = await routerai()
+    const attempt = await startSignIn(apiBase, { receiver: false })
+    await expect(attempt.submit('typo')).rejects.toThrow()
+    await expect(attempt.submit('typo')).rejects.toThrow('уже был отправлен')
+    expect(exchanges(seen)).toHaveLength(1)
+    await attempt.submit('valid-code')
+    await expect(attempt.submit('valid-code')).rejects.toThrow('уже завершён')
+    expect(exchanges(seen)).toHaveLength(2)
+  })
+
+  it('разбирает вставленное: код, адрес, отказ; ключ вместо кода не принимает', () => {
+    expect(readPastedCode(' abc-123\n')).toEqual({ code: 'abc-123', fromAddress: false })
+    expect(readPastedCode('http://127.0.0.1:5000/routerai/return?code=c1&state=s1')).toEqual({ code: 'c1', state: 's1', fromAddress: true })
+    expect(() => readPastedCode('http://127.0.0.1:5000/routerai/return?error=access_denied&state=s1')).toThrow('отклонили доступ')
+    expect(() => readPastedCode('https://routerai.ru/auth?app_name=x')).toThrow('нет кода входа')
+    expect(() => readPastedCode('sk-good-key-0000000000000000')).toThrow('Это ключ')
+    expect(() => readPastedCode('   ')).toThrow('Вставьте код')
+  })
+
+  it('приёмник отвечает на проверку меткой попытки и разрешает чтение с любой страницы', async () => {
+    const { apiBase } = await routerai()
+    const attempt = await startSignIn(apiBase)
+    const response = await fetch(`http://127.0.0.1:${attempt.port}/routerai/ping`)
+    expect(response.headers.get('access-control-allow-origin')).toBe('*')
+    const body = await response.json() as Record<string, unknown>
+    expect(body).toEqual({ attempt: attempt.attempt })
+    // Метка попытки — не секрет входа.
+    expect(attempt.url).not.toContain(attempt.attempt)
+    attempt.cancel()
+  })
+
+  it('заданный порт используется; занятый порт оставляет вход по коду с объяснением', async () => {
+    const { apiBase } = await routerai()
+    const blocker = createServer()
+    await new Promise<void>((resolve) => { blocker.listen(0, '127.0.0.1', resolve) })
+    const port = (blocker.address() as { port: number }).port
+    const busy = await startSignIn(apiBase, { port })
+    expect(busy.url).toBeNull()
+    expect(busy.receiverProblem).toContain(`Порт ${port}`)
+    busy.cancel()
+    await new Promise<void>((resolve) => { blocker.close(() => { resolve() }) })
+    const free = await startSignIn(apiBase, { port })
+    expect(free.port).toBe(port)
+    expect(new URL(free.url!).searchParams.get('callback_url')).toBe(`http://127.0.0.1:${port}/routerai/return`)
+    free.cancel()
   })
 })
 
@@ -139,10 +237,8 @@ describe('мост для интерфейса', () => {
     const catalog = new ModelCatalog({ apiBase, maxAgeMs: 3_600_000, download: async () => sampleCards() })
     const preferences = new PreferenceStore(`${dir}/preferences.json`, () => ['anthropic/claude-sonnet-5.5'])
     const costs = new CostBook(`${dir}/costs.json`)
-    const opened: string[] = []
     const bridge = new Bridge({
       apiBase, catalog, preferences, costs, warn: () => {},
-      openBrowser: (url) => { opened.push(url) },
       readKey: async () => key,
       storeKey: async (value) => { key = value },
       forgetKey: async () => { key = undefined },
@@ -156,7 +252,7 @@ describe('мост для интерфейса', () => {
       const response = await endpoint.fetch(new Request(`http://localhost/api/routerai/${target}`, { method, ...body === undefined ? {} : { body: JSON.stringify(body) } }))
       return { status: response.status, body: await response.json() as any }
     }
-    return { bridge, send, costs, key: () => key, catalog, opened }
+    return { bridge, send, costs, key: () => key, catalog }
   }
 
   it('без ключа сообщает, что подключения нет, и отдаёт список из конфигурации', async () => {
@@ -224,22 +320,36 @@ describe('мост для интерфейса', () => {
     expect((await send('overview')).body.problem).toBeNull()
   })
 
-  it('десктопное приложение открывает страницу согласия само: сервер браузер не запускает', async () => {
-    const { send, opened } = await setUp()
-    const started = (await send('sign-in', { browser: 'client' })).body as { url: string }
-    expect(started.url).toContain('/auth?')
-    expect(opened).toEqual([])
-    expect((await send('overview')).body.signIn).toEqual({ stage: 'waiting', url: started.url })
-  })
-
   it('вход из интерфейса: ожидание, затем ключ', async () => {
-    const { send, key, opened } = await setUp()
-    const started = (await send('sign-in', {})).body as { url: string }
-    expect(opened).toEqual([started.url])
-    expect((await send('overview')).body.signIn).toEqual({ stage: 'waiting', url: started.url })
+    const { send, key } = await setUp()
+    const started = (await send('sign-in', {})).body as { url: string; codeUrl: string; attempt: string; port: number }
+    expect(started.port).toBeGreaterThan(0)
+    expect(started.attempt).not.toBe('')
+    expect((await send('overview')).body.signIn).toEqual({ stage: 'waiting', url: started.url, codeUrl: started.codeUrl, byCode: false, notice: null })
     const consent = new URL(started.url).searchParams
     await fetch(`${consent.get('callback_url')}?code=valid-code&state=${consent.get('state')}`)
     await expect.poll(key).toBe('sk-issued-by-consent-page-0001')
     await expect.poll(async () => (await send('overview')).body.signIn.stage).toBe('idle')
+  })
+
+  it('интерфейс с другой машины: вход сразу по коду, ключ сохранён к ответу на код', async () => {
+    const { send, key } = await setUp()
+    const started = (await send('sign-in', { receiver: false })).body
+    expect(started).toMatchObject({ url: null, port: null, byCode: true })
+    expect((await send('sign-in/code', { value: 'typo' })).status).toBe(400)
+    expect((await send('overview')).body.signIn.stage).toBe('waiting')
+    expect((await send('sign-in/code', { value: 'valid-code' })).status).toBe(200)
+    expect(key()).toBe('sk-issued-by-consent-page-0001')
+    expect((await send('overview')).body.signIn.stage).toBe('idle')
+    expect((await send('sign-in/code', { value: 'valid-code' })).body.error).toContain('Вход не начат')
+  })
+
+  it('приёмник не виден из браузера: интерфейс переводит начатый вход на код', async () => {
+    const { send, key } = await setUp()
+    await send('sign-in', {})
+    await send('sign-in/by-code', {})
+    expect((await send('overview')).body.signIn).toMatchObject({ stage: 'waiting', byCode: true })
+    await send('sign-in/code', { value: 'valid-code' })
+    expect(key()).toBe('sk-issued-by-consent-page-0001')
   })
 })

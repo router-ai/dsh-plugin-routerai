@@ -7,7 +7,7 @@ import { cachedShare } from './costs.ts'
 import type { CostBook, SessionCost } from './costs.ts'
 import type { MoneyProblem } from './failures.ts'
 import type { PreferenceStore } from './preferences.ts'
-import { openBrowser, startSignIn } from './signin.ts'
+import { startSignIn } from './signin.ts'
 import type { PendingSignIn } from './signin.ts'
 
 export const BRIDGE_ROOT = '/api/routerai'
@@ -20,7 +20,7 @@ const BODY_LIMIT = 100_000
 export interface Overview {
   connected: boolean
   keyMask: string | null
-  signIn: { stage: 'idle' } | { stage: 'waiting'; url: string } | { stage: 'failed'; reason: string }
+  signIn: { stage: 'idle' } | WaitingSignIn | { stage: 'failed'; reason: string }
   account: AccountView | null
   picker: { models: string[]; custom: boolean }
   utilityModel: string | null
@@ -36,6 +36,25 @@ export interface Overview {
   problem: MoneyProblem | null
 }
 
+/** Вход начат и ждёт пользователя. */
+export interface WaitingSignIn {
+  stage: 'waiting'
+  /** Страница согласия с возвратом в локальный приёмник; `null`, когда приёмника нет. */
+  url: string | null
+  /** Страница согласия, которая покажет код для ручного ввода. */
+  codeUrl: string
+  /** Интерфейс ждёт код от пользователя, а не возврата браузера. */
+  byCode: boolean
+  /** Почему обычный вход недоступен (например, занят порт). */
+  notice: string | null
+}
+
+/** Ответ на начало входа: всё, что нужно интерфейсу, чтобы открыть страницу и проверить приёмник. */
+export interface SignInStart extends WaitingSignIn {
+  attempt: string
+  port: number | null
+}
+
 export type CatalogEntry = ModelCard
 
 export type SessionCostView = SessionCost & { cachedShare: number | null }
@@ -49,8 +68,9 @@ export interface BridgeDeps {
   preferences: PreferenceStore
   costs: CostBook
   warn(message: string): void
-  /** Открыть адрес в браузере; по умолчанию — системный браузер на машине harness. */
-  openBrowser?(url: string): void
+  /** Порт и адрес локального приёмника возврата со страницы входа. */
+  signInPort?: number
+  signInHost?: string
 }
 
 export interface BridgeEndpoint {
@@ -62,6 +82,8 @@ export interface BridgeEndpoint {
 export class Bridge {
   private signIn: Overview['signIn'] = { stage: 'idle' }
   private pending: PendingSignIn | undefined
+  /** Завершение текущей попытки вместе с сохранением ключа. */
+  private settling: Promise<void> = Promise.resolve()
   private accountCache: { forKey: string; at: number; view: AccountView } | undefined
   private problem: MoneyProblem | null = null
 
@@ -109,14 +131,21 @@ export class Bridge {
     return view
   }
 
-  /** `byClient` — страницу согласия откроет сам интерфейс (десктопное приложение), серверу браузер запускать не нужно. */
-  private async beginSignIn(byClient = false): Promise<{ url: string }> {
+  /**
+   * Начать вход. Страницу согласия открывает интерфейс. `receiver: false` — сразу вход по коду:
+   * интерфейс открыт с другой машины, локальный приёмник браузеру не виден.
+   */
+  private async beginSignIn(receiver: boolean): Promise<SignInStart> {
     this.pending?.cancel()
-    const attempt = await startSignIn(this.deps.apiBase)
+    const attempt = await startSignIn(this.deps.apiBase, {
+      receiver,
+      ...this.deps.signInPort === undefined ? {} : { port: this.deps.signInPort },
+      ...this.deps.signInHost === undefined ? {} : { host: this.deps.signInHost },
+    })
     this.pending = attempt
-    this.signIn = { stage: 'waiting', url: attempt.url }
-    if (!byClient) (this.deps.openBrowser ?? openBrowser)(attempt.url)
-    attempt.key.then(
+    const waiting: WaitingSignIn = { stage: 'waiting', url: attempt.url, codeUrl: attempt.codeUrl, byCode: attempt.url === null, notice: attempt.receiverProblem }
+    this.signIn = waiting
+    this.settling = attempt.key.then(
       async (key) => {
         await this.deps.storeKey(key)
         this.accountCache = undefined
@@ -131,7 +160,21 @@ export class Bridge {
         this.deps.warn(`вход не завершён: ${reason}`)
       },
     ).finally(() => { if (this.pending === attempt) this.pending = undefined })
-    return { url: attempt.url }
+    return { ...waiting, attempt: attempt.attempt, port: attempt.port }
+  }
+
+  /** Приёмник из браузера не виден или пользователь сам выбрал вход по коду. */
+  private switchToCode(): void {
+    if (this.signIn.stage === 'waiting') this.signIn = { ...this.signIn, byCode: true }
+  }
+
+  private async submitCode(value: string): Promise<void> {
+    const attempt = this.pending
+    if (attempt === undefined) throw new Error('Вход не начат или уже завершён. Начните заново.')
+    const settling = this.settling
+    await attempt.submit(value)
+    // Ключ сохраняет обработчик попытки; дожидаемся его, чтобы ответ ушёл уже с ключом.
+    await settling
   }
 
   private abandonSignIn(): void {
@@ -162,7 +205,12 @@ export class Bridge {
         const cost = this.deps.costs.of(param(request, 'id') ?? '')
         return { cost: cost === undefined ? null : { ...cost, cachedShare: cachedShare(cost.tokens) ?? null } satisfies SessionCostView }
       }],
-      'sign-in': ['POST', async request => this.beginSignIn((await input(request))['browser'] === 'client')],
+      'sign-in': ['POST', async request => this.beginSignIn((await input(request))['receiver'] !== false)],
+      'sign-in/by-code': ['POST', async () => { this.switchToCode(); return {} }],
+      'sign-in/code': ['POST', async (request) => {
+        await this.submitCode(String((await input(request))['value'] ?? ''))
+        return {}
+      }],
       'sign-in/cancel': ['POST', async () => { this.abandonSignIn(); return {} }],
       'sign-out': ['POST', async () => {
         this.abandonSignIn()

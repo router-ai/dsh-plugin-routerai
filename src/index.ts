@@ -57,6 +57,10 @@ export interface Config {
   baseURL: string
   /** Как часто сверять каталог моделей с RouterAI, часы. */
   catalogRefreshHours: number
+  /** Порт локального приёмника возврата со страницы входа; 0 — выбирает система. */
+  signInPort: number
+  /** Адрес, на котором слушает приёмник. */
+  signInHost: string
 }
 
 export const Config: z<Config> = z.object({
@@ -68,6 +72,10 @@ export const Config: z<Config> = z.object({
     .description('Адрес API RouterAI.'),
   catalogRefreshHours: z.number().min(0.25).default(4)
     .description('Как часто обновлять каталог моделей и цены, в часах.'),
+  signInPort: z.number().min(0).max(65535).default(0)
+    .description('Порт, на который браузер возвращается со страницы входа RouterAI. 0 — случайный. Задайте, если пробрасываете порт из контейнера или по SSH.'),
+  signInHost: z.string().default('127.0.0.1')
+    .description('Адрес, на котором плагин ждёт возврата со страницы входа. В контейнере с пробросом порта — 0.0.0.0.'),
 }) as unknown as z<Config>
 
 /** Каталог состояния плагина внутри дома harness. */
@@ -159,6 +167,7 @@ export function apply(ctx: Context, config: Config): void {
   const bridge = new Bridge({
     apiBase, readKey, storeKey, forgetKey, catalog, preferences, costs,
     warn: message => ctx.logger.warn(`[routerai] ${message}`),
+    signInPort: config.signInPort, signInHost: config.signInHost,
   })
 
   const adapter = new RouterAiAdapter({
@@ -292,6 +301,7 @@ export function apply(ctx: Context, config: Config): void {
     registerSlashCommand(scope, {
       apiBase, credentialName: config.apiKeyEnv, readKey, storeKey, forgetKey, catalog,
       pickerModels: () => preferences.pickerModels(),
+      signInPort: config.signInPort, signInHost: config.signInHost,
     })
   })
 }
