@@ -20,6 +20,8 @@ export interface SlashDeps {
   catalog: ModelCatalog
   signInPort?: number
   signInHost?: string
+  /** Имя приложения для страницы согласия. */
+  appName?(): Promise<string>
   /** Открыть адрес в браузере; `false` — открыть нечем. По умолчанию — системный браузер. */
   openBrowser?(url: string): Promise<boolean>
 }
@@ -67,6 +69,8 @@ export function registerSlashCommand(ctx: Context, deps: SlashDeps): void {
   /** Вход, который ждёт код от пользователя: между командами `login`/`code` и `code <код>`. */
   let byCode: PendingSignIn | undefined
 
+  const named = async () => (deps.appName === undefined ? {} : { appName: await deps.appName() })
+
   function awaitCode(attempt: PendingSignIn): CommandResult {
     byCode?.cancel()
     byCode = attempt
@@ -85,6 +89,7 @@ export function registerSlashCommand(ctx: Context, deps: SlashDeps): void {
         byCode?.cancel()
         byCode = undefined
         const attempt = await startSignIn(deps.apiBase, {
+          ...await named(),
           ...deps.signInPort === undefined ? {} : { port: deps.signInPort },
           ...deps.signInHost === undefined ? {} : { host: deps.signInHost },
         })
@@ -95,7 +100,7 @@ export function registerSlashCommand(ctx: Context, deps: SlashDeps): void {
         return signedIn(await attempt.key)
       }
       case 'code': {
-        if (argument === '') return awaitCode(await startSignIn(deps.apiBase, { receiver: false }))
+        if (argument === '') return awaitCode(await startSignIn(deps.apiBase, { receiver: false, ...await named() }))
         const attempt = byCode
         if (attempt === undefined) return bad('Вход по коду не начат. Выполните /routerai code без кода — команда даст ссылку.')
         await attempt.submit(argument)

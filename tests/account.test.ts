@@ -8,6 +8,8 @@ import { PreferenceStore } from '../src/preferences.ts'
 import { createServer } from 'node:net'
 import { browserLauncher, consentUrl, newChallenge, readPastedCode, startSignIn } from '../src/signin.ts'
 import { accountReport } from '../src/slash.ts'
+import { installLabel } from '../src/install.ts'
+import { clientName } from '../src/signin.ts'
 import { sampleCards, scratchDir, sendJson, stubServer } from './helpers.ts'
 
 const GOOD = 'sk-good-key-0000000000000000'
@@ -130,6 +132,29 @@ describe('вход через браузер', () => {
     const cancelled = await startSignIn(apiBase)
     cancelled.cancel()
     await expect(cancelled.key).rejects.toThrow('Вход отменён')
+  })
+})
+
+describe('имя приложения установки', () => {
+  it('метка создаётся один раз и переживает перезапуск; испорченный файл заменяется', async () => {
+    const dir = await scratchDir()
+    const first = await installLabel(`${dir}/install.json`)()
+    expect(first).toMatch(/^[a-z0-9]{4}$/)
+    expect(await installLabel(`${dir}/install.json`)()).toBe(first)
+    expect(await installLabel(`${dir}/other/install.json`)()).not.toBe(undefined)
+    expect(clientName(first)).toBe(`DeepSeek Harness · ${first}`)
+    expect(clientName()).toBe('DeepSeek Harness')
+  })
+
+  it('обе страницы согласия называют приложение именем установки', async () => {
+    const { apiBase } = await routerai()
+    const attempt = await startSignIn(apiBase, { appName: clientName('k3f9') })
+    for (const page of [attempt.url!, attempt.codeUrl]) {
+      const query = new URL(page).searchParams
+      expect(query.get('app_name')).toBe('DeepSeek Harness · k3f9')
+      expect(query.get('key_label')).toBe('DeepSeek Harness · k3f9')
+    }
+    attempt.cancel()
   })
 })
 

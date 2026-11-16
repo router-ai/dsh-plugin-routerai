@@ -31,6 +31,8 @@ function Connect({ t, remote, overview }: Shared & { overview: Overview }) {
   const action = useAction()
   return (
     <Panel title={t('connectTitle')}>
+      {/* Сохранённый ключ отозван или удалён: показываем причину и сразу даём войти заново. */}
+      {overview.connected ? <p className="rai-alert" data-routerai="key-rejected">{t('keyRejected')} <span className="rai-faint">{overview.keyMask}</span></p> : null}
       <SignIn t={t} remote={remote} overview={overview} />
       <div className="rai-line">
         <span className="rai-note">{t('pasteLabel')}</span>
@@ -58,7 +60,6 @@ function Account({ t, remote, overview }: Shared & { overview: Overview }) {
         <Button variant="ghost" disabled={action.busy} onClick={() => { action.run(() => remote.pull(true)) }}>{t('reload')}</Button>
         <Button variant="ghost" disabled={action.busy} onClick={() => { action.run(remote.signOut) }}>{t('disconnect')}</Button>
       </div>
-      {account?.state === 'rejected' ? <p className="rai-alert">{t('keyRejected')}</p> : null}
       {account?.state === 'offline' ? <p className="rai-caution">{t('offline')}</p> : null}
       {key?.disabled ? <p className="rai-alert">{t('keyDisabled')}</p> : null}
       <div className="rai-figures">
@@ -401,7 +402,9 @@ export function SettingsPage({ t, remote }: Shared) {
       {failure !== null ? <p className="rai-alert">{failure}</p> : null}
       {overview === null ? null : (
         <>
-          {overview.connected ? <Account t={t} remote={remote} overview={overview} /> : <Connect t={t} remote={remote} overview={overview} />}
+          {overview.connected && overview.account?.state !== 'rejected'
+            ? <Account t={t} remote={remote} overview={overview} />
+            : <Connect t={t} remote={remote} overview={overview} />}
           <Picker t={t} remote={remote} overview={overview} catalog={catalog} />
           {catalogFailure !== null ? <p className="rai-alert">{catalogFailure}</p> : null}
           <Extras t={t} remote={remote} overview={overview} catalog={catalog} />

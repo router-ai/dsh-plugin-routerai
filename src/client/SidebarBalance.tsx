@@ -18,7 +18,10 @@ export function SidebarBalance({ t, remote, wide }: { t: Translate; remote: Remo
   const balance = overview.account?.balance
   const running = overview.problem !== null || (balance !== undefined && balance < overview.lowBalance)
   const cap = overview.account?.key?.cap
-  const classes = ['rai-side', wide ? '' : 'rai-compact', running ? 'rai-warn' : ''].join(' ').trim()
+  // Ключ сохранён, но RouterAI его больше не принимает — это не «баланс неизвестен», а «нужно войти заново».
+  const rejected = overview.account?.state === 'rejected'
+  const usable = overview.connected && !rejected
+  const classes = ['rai-side', wide ? '' : 'rai-compact', running || rejected ? 'rai-warn' : ''].join(' ').trim()
 
   return (
     <>
@@ -26,13 +29,14 @@ export function SidebarBalance({ t, remote, wide }: { t: Translate; remote: Remo
         onClick={() => { setShown(true); void remote.pull(true) }}>
         <Logo size={16} />
         {wide ? <span>{t('sidebarTitle')}</span> : null}
-        {wide ? <b>{overview.connected ? rub(balance) : t('sidebarConnect')}</b> : null}
+        {wide ? <b>{usable ? rub(balance) : t('sidebarConnect')}</b> : null}
       </button>
       <Modal open={shown} onClose={() => { setShown(false) }} title={t('sidebarTitle')} closeLabel={t('close')}
-        footer={overview.connected ? <Button variant="primary" onClick={() => { openTab(BILLING_PAGE) }}>{t('addFunds')}</Button> : undefined}>
+        footer={usable ? <Button variant="primary" onClick={() => { openTab(BILLING_PAGE) }}>{t('addFunds')}</Button> : undefined}>
         <div style={{ display: 'grid', gap: 12 }}>
           {overview.problem !== null ? <p className="rai-alert">{overview.problem.text}</p> : running ? <p className="rai-caution">{t('sidebarLow')}</p> : null}
-          {overview.connected
+          {rejected ? <p className="rai-alert" data-routerai="key-rejected">{t('keyRejected')}</p> : null}
+          {usable
             ? (
               <div className="rai-figures">
                 <div className="rai-figure rai-main">

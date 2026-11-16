@@ -12,9 +12,14 @@ import type { AddressInfo } from 'node:net'
 /**
  * Под этим именем приложение видно пользователю на странице согласия. RouterAI привязывает
  * выданный ключ к имени приложения и при повторном входе перевыпускает его, а не создаёт новый,
- * поэтому имя должно оставаться постоянным.
+ * поэтому имя установки должно оставаться постоянным, а у разных установок — различаться.
  */
 export const CLIENT_NAME = 'DeepSeek Harness'
+
+/** Имя приложения для установки с меткой `label`: «DeepSeek Harness · k3f9». */
+export function clientName(label?: string): string {
+  return label === undefined || label === '' ? CLIENT_NAME : `${CLIENT_NAME} · ${label}`
+}
 
 const WAIT_LIMIT_MS = 15 * 60_000
 const RETURN_PATH = '/routerai/return'
@@ -37,11 +42,11 @@ export function newChallenge(): Challenge {
 }
 
 /** Адрес страницы согласия. Она живёт на сайте, а не под /api. Без `returnTo` страница покажет код для ручного ввода. */
-export function consentUrl(apiBase: string, challenge: Challenge, returnTo?: string): string {
+export function consentUrl(apiBase: string, challenge: Challenge, returnTo?: string, appName = CLIENT_NAME): string {
   const page = new URL('/auth', apiBase)
   page.search = new URLSearchParams({
-    app_name: CLIENT_NAME,
-    key_label: CLIENT_NAME,
+    app_name: appName,
+    key_label: appName,
     ...returnTo === undefined ? {} : { callback_url: returnTo },
     code_challenge: challenge.digest,
     code_challenge_method: 'S256',
@@ -108,6 +113,8 @@ export interface SignInOptions {
   port?: number
   /** Адрес, на котором слушает приёмник. */
   host?: string
+  /** Имя приложения на странице согласия; у каждой установки своё. */
+  appName?: string
 }
 
 export interface PendingSignIn {
@@ -229,8 +236,8 @@ export async function startSignIn(apiBase: string, options: SignInOptions = {}):
   void key.then(shutdown, shutdown)
 
   return {
-    url: returnTo === undefined ? null : consentUrl(apiBase, challenge, returnTo),
-    codeUrl: consentUrl(apiBase, challenge),
+    url: returnTo === undefined ? null : consentUrl(apiBase, challenge, returnTo, options.appName),
+    codeUrl: consentUrl(apiBase, challenge, undefined, options.appName),
     attempt,
     port,
     receiverProblem,

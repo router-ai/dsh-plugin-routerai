@@ -71,6 +71,8 @@ export interface BridgeDeps {
   /** Порт и адрес локального приёмника возврата со страницы входа. */
   signInPort?: number
   signInHost?: string
+  /** Имя приложения для страницы согласия. */
+  appName?(): Promise<string>
 }
 
 export interface BridgeEndpoint {
@@ -139,6 +141,7 @@ export class Bridge {
     this.pending?.cancel()
     const attempt = await startSignIn(this.deps.apiBase, {
       receiver,
+      ...this.deps.appName === undefined ? {} : { appName: await this.deps.appName() },
       ...this.deps.signInPort === undefined ? {} : { port: this.deps.signInPort },
       ...this.deps.signInHost === undefined ? {} : { host: this.deps.signInHost },
     })

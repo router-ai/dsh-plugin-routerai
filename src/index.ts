@@ -41,6 +41,8 @@ import { API_BASE, KEYS_PAGE, ROUTE } from './links.ts'
 import { pricePair, windowLabel } from './money.ts'
 import { PreferenceStore } from './preferences.ts'
 import { buildRoute, describeModel, describeUnknownModel, isolatedAuth } from './provider.ts'
+import { clientName } from './signin.ts'
+import { installLabel } from './install.ts'
 import { registerSlashCommand } from './slash.ts'
 import { registerSpeakTool } from './speak.ts'
 import { registerSpeechProvider } from './speech.ts'
@@ -164,10 +166,14 @@ export function apply(ctx: Context, config: Config): void {
     ctx.emit('llm/models-updated', ROUTE)
   }
 
+  // У каждой установки своё имя приложения: вход на другом компьютере не отключает ключ этой.
+  const label = installLabel(join(home, 'install.json'))
+  const appName = async () => clientName(await label())
+
   const bridge = new Bridge({
     apiBase, readKey, storeKey, forgetKey, catalog, preferences, costs,
     warn: message => ctx.logger.warn(`[routerai] ${message}`),
-    signInPort: config.signInPort, signInHost: config.signInHost,
+    signInPort: config.signInPort, signInHost: config.signInHost, appName,
   })
 
   const adapter = new RouterAiAdapter({
@@ -301,7 +307,7 @@ export function apply(ctx: Context, config: Config): void {
     registerSlashCommand(scope, {
       apiBase, credentialName: config.apiKeyEnv, readKey, storeKey, forgetKey, catalog,
       pickerModels: () => preferences.pickerModels(),
-      signInPort: config.signInPort, signInHost: config.signInHost,
+      signInPort: config.signInPort, signInHost: config.signInHost, appName,
     })
   })
 }
