@@ -162,6 +162,17 @@ function show(tab: Window | null, url: string): void {
     openTab(url)
     return
   }
-  tab.opener = null
-  tab.location.replace(url)
+  // Некоторые браузеры сразу загружают в новую вкладку свою страницу — тогда вкладка уже чужая:
+  // обнулить `opener` в ней нельзя, но направить её по адресу по-прежнему можно.
+  try {
+    tab.opener = null
+  } catch {
+    // вкладка уже на другом сайте
+  }
+  try {
+    tab.location.replace(url)
+  } catch {
+    tab.close()
+    openTab(url)
+  }
 }
