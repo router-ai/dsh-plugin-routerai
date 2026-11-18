@@ -63,7 +63,7 @@ describe('описание моделей для pi-ai', () => {
   it('переносит окно, зрение и рассуждение из каталога', () => {
     const sonnet = model('anthropic/claude-sonnet-5.5')
     expect(sonnet).toMatchObject({ id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', provider: 'routerai', api: 'openai-completions', baseUrl: base, contextWindow: 1_000_000, maxTokens: 32_768, reasoning: true, input: ['text', 'image'] })
-    expect(sonnet.thinkingLevelMap).toMatchObject({ low: 'low', medium: 'medium', high: 'high', off: null, max: null })
+    expect(sonnet.thinkingLevelMap).toEqual({ off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' })
   })
 
   it('разметку кэша включает только моделям Anthropic, в том числе алиасам', () => {
@@ -89,6 +89,14 @@ describe('маршрут routerai', () => {
     expect(listed.find(model => model.id === 'openai/gpt-6.1-sol')?.description).toBe('подпись openai/gpt-6.1-sol')
     // Скрытая из пикера модель остаётся доступной маршруту — на ней работают служебные запросы.
     await expect(adapter.resolveModel('routerai', 'deepseek/deepseek-v4.1-flash')).resolves.toBeDefined()
+  })
+
+  it('уровни рассуждения xhigh и max уходят в запрос как есть', async () => {
+    const { adapter, stub } = await setUp('stream')
+    for (const level of ['xhigh', 'max'] as const) {
+      await collect(adapter.stream(call('anthropic/claude-sonnet-5.5', { reasoningEffort: level, sessionId: `session-${level}` })))
+      expect(stub.seen.at(-1)!.body).toMatchObject({ reasoning: { effort: level } })
+    }
   })
 
   it('отправляет запрос в диалекте RouterAI и отдаёт текст, а токены — наблюдателю', async () => {

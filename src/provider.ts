@@ -34,9 +34,9 @@ function wireDialect(slug: string): OpenAICompletionsCompat {
   return dialect
 }
 
-/** RouterAI принимает усилия low/medium/high; прочие уровни harness модели не предлагает. */
+/** Уровни рассуждения, которые harness предлагает для модели: от low до max. Выключить рассуждение уровнем нельзя. */
 function thinkingLevels(): ThinkingLevelMap {
-  return { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null }
+  return { off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }
 }
 
 export function describeModel(card: ModelCard, apiBase: string): Model<Api> {
