@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { loadAccount, looksLikeApiKey, maskApiKey } from '../src/account.ts'
+import { loadAccount, looksLikeApiKey, maskApiKey, tidyApiKey } from '../src/account.ts'
 import { Bridge } from '../src/bridge.ts'
 import type { BridgeEndpoint } from '../src/bridge.ts'
 import { ModelCatalog } from '../src/catalog.ts'
@@ -132,6 +132,17 @@ describe('вход через браузер', () => {
     const cancelled = await startSignIn(apiBase)
     cancelled.cancel()
     await expect(cancelled.key).rejects.toThrow('Вход отменён')
+  })
+})
+
+describe('проверка сохранённого ключа', () => {
+  it('обрезает пробелы по краям; пустой ключ и ключ с лишними символами не пропускает', () => {
+    expect(tidyApiKey('  sk-good-key-0000000000000000\n')).toEqual({ ok: true, key: 'sk-good-key-0000000000000000' })
+    expect(tidyApiKey('   ')).toMatchObject({ ok: false })
+    expect(tidyApiKey('sk-good key')).toMatchObject({ ok: false })
+    expect(tidyApiKey('ключ sk-good-key')).toMatchObject({ ok: false })
+    // Сам ключ в описание проблемы не попадает.
+    expect(JSON.stringify(tidyApiKey('sk-secret part'))).not.toContain('sk-secret')
   })
 })
 

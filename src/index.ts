@@ -28,9 +28,10 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-fs'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
+import { LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type { ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import z from '@deepseek-ai/schemastery'
+import { tidyApiKey } from './account.ts'
 import { RouterAiAdapter } from './adapter.ts'
 import { Bridge } from './bridge.ts'
 import { isChatModel, ModelCatalog } from './catalog.ts'
@@ -151,7 +152,11 @@ export function apply(ctx: Context, config: Config): void {
       ? await optional.credentials.resolve(credential)
       : launchEnvironmentOf(ctx).get(credential)
     const value = found?.value
-    return value === undefined || value === '' ? undefined : assertUsableApiKey(value, name, config.apiKeyEnv)
+    if (value === undefined || value === '') return undefined
+    const checked = tidyApiKey(value)
+    if (checked.ok) return checked.key
+    // Сам ключ в сообщение не попадает — только место, где его исправить.
+    throw new LlmError(`${name}: ${checked.problem} Проверьте значение ${config.apiKeyEnv} или войдите заново: /routerai login`, 'MISSING_CREDENTIAL')
   }
   const keyVault = () => {
     if (optional.credentials === undefined) throw new Error('В этом режиме DeepSeek Harness нет хранилища ключей — задайте ключ переменной окружения.')

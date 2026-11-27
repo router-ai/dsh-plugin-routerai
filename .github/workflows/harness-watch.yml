@@ -28,7 +28,9 @@ jobs:
         continue-on-error: true
         run: |
           npm ci
-          npm install --no-save ${{ steps.versions.outputs.install }}
+          # --force: новая версия harness приносит пакеты, которых ещё нет в зависимостях плагина,
+          # и без него npm отказывается ставить её поверх закреплённой.
+          npm install --no-save --force ${{ steps.versions.outputs.install }}
           npm run typecheck
           npm test
           npm run build

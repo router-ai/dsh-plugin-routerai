@@ -2,6 +2,17 @@
 // Все суммы — в рублях.
 
 /** Ключи RouterAI начинаются с `sk-`, дальше — urlsafe-base64. */
+/**
+ * Привести сохранённый ключ к виду, пригодному для заголовка запроса: без пробелов по краям,
+ * только печатные символы ASCII. Проверка своя, чтобы не зависеть от служебных функций harness.
+ */
+export function tidyApiKey(raw: string): { ok: true; key: string } | { ok: false; problem: string } {
+  const key = raw.trim()
+  if (key === '') return { ok: false, problem: 'ключ RouterAI пуст.' }
+  if (!/^[\x21-\x7e]+$/.test(key)) return { ok: false, problem: 'в ключе RouterAI есть пробелы или недопустимые символы — похоже, он скопирован не целиком или с лишним текстом.' }
+  return { ok: true, key }
+}
+
 export function looksLikeApiKey(text: string): boolean {
   return /^sk-[\w-]{16,200}$/.test(text)
 }

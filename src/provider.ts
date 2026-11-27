@@ -14,6 +14,8 @@ export const PROVIDER_NAME = 'RouterAI'
 
 /** Каталог не сообщает предел вывода; этого хватает на длинные правки и не упирается в лимиты апстримов. */
 const OUTPUT_CEILING = 32_768
+/** Предел размера одной картинки в запросе — как у маршрутов pi-ai в harness по умолчанию. */
+const IMAGE_BYTES = 1024 * 1024
 /** Окно для модели, о которой каталог ещё ничего не сказал. */
 const UNKNOWN_WINDOW = 128_000
 
@@ -88,7 +90,9 @@ export function buildRoute(models: readonly Model<Api>[], apiBase: string, crede
       },
     },
   })
-  return {
+  // Состав профиля у harness менялся между версиями (0.2.2 → 0.2.3): предел размера одной картинки
+  // переименован, появился делитель общего бюджета. Отдаём оба набора полей — лишние harness не читает.
+  const profile = {
     provider: ROUTE,
     displayName: PROVIDER_NAME,
     apiKeyEnv: credential,
@@ -98,10 +102,13 @@ export function buildRoute(models: readonly Model<Api>[], apiBase: string, crede
     streamIdleTimeoutMs: 300_000,
     maxRequestImages: 50,
     maxRequestImageBytes: 20 * 1024 * 1024,
-    requestImageMaxBytes: 1024 * 1024,
+    requestImageMaxBytes: IMAGE_BYTES,
+    maxImageBytes: IMAGE_BYTES,
+    requestImageBudgetCount: 20,
     requestImagePixelBudget: 2048 * 2048,
     imageOffloadCountQuantum: 10,
     modelErrors: new Map(),
     configuredMaxTokens: new Map(),
   }
+  return profile as ResolvedPiAiProviderProfile
 }
